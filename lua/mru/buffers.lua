@@ -371,6 +371,13 @@ function M.pin(slot)
 		return
 	end
 
+	-- enforce one slot per path (if re-pinning, clear any other slot)
+	for s, p in pairs(M._pins) do
+		if s ~= slot and p and p.path == path then
+			M._pins[s] = nil
+		end
+	end
+
 	M._pins[slot] = { path = path, bufnr = cur }
 	if not find_index(path) then
 		table.insert(M._list, path)
@@ -819,6 +826,9 @@ local function render_menu(buf, items)
 		lines[i] = string.format("%2d  %s  %s", i, pin_tag, disp)
 	end
 
+	lines[#lines + 1] = ""
+	lines[#lines + 1] = "x: unpin   q/<Esc>: close"
+
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 	vim.bo[buf].modifiable = false
@@ -930,6 +940,30 @@ function M.open_menu()
 	-- Close
 	vim.keymap.set("n", "q", close_menu, { buffer = buf, silent = true })
 	vim.keymap.set("n", "<Esc>", close_menu, { buffer = buf, silent = true })
+
+	-- Unpin (removes the pin, does not force-close buffer)
+	vim.keymap.set(
+		"n",
+		"x",
+		with_items(function(fresh)
+			local row = vim.api.nvim_win_get_cursor(0)[1]
+			local it = fresh[row]
+			if not it then
+				return
+			end
+			local slot = pin_slot_for_path(it.path)
+			if not slot then
+				vim.notify("MRU: not pinned", vim.log.levels.INFO)
+				return
+			end
+			M.unpin(slot)
+			local refreshed = mru_items()
+			render_menu(buf, refreshed)
+			local new_row = math.min(row, #refreshed)
+			vim.api.nvim_win_set_cursor(0, { math.max(1, new_row), 0 })
+		end),
+		{ buffer = buf, silent = true, desc = "Unpin selected" }
+	)
 
 	-- Refresh (if MRU changed)
 	vim.keymap.set("n", "r", function()
