@@ -19,7 +19,7 @@ M.commit_on_touch = true
 -- Touch events (CursorMoved is fine once we gate it by real keypress)
 M.touch_events = { "CursorMoved", "InsertEnter", "TextChanged" }
 
-M._list = {} -- MRU unique ring, most-recent first
+M._list = {} -- MRU unique ring of file paths, most-recent first
 M._pos = 1 -- current position in ring (1 = most recent)
 M._nav_lock = false
 
@@ -258,15 +258,69 @@ local function is_telescope_ui(buf)
 	return ft == "TelescopePrompt" or ft == "TelescopeResults"
 end
 
+local function path_for_buf(buf)
+	if not buf_real(buf) then
+		return nil
+	end
+	return normalize_path(vim.api.nvim_buf_get_name(buf))
+end
+
+local function is_pinned_path(path)
+	return pin_slot_for_path(path) ~= nil
+end
+
+local function enforce_max()
+	while #M._list > M.max do
+		local removed = nil
+		for i = #M._list, 1, -1 do
+			if not is_pinned_path(M._list[i]) then
+				removed = i
+				break
+			end
+		end
+		if not removed then
+			break
+		end
+		table.remove(M._list, removed)
+		if removed < M._pos then
+			M._pos = math.max(1, M._pos - 1)
+		elseif removed == M._pos then
+			M._pos = math.min(M._pos, #M._list)
+		end
+	end
+
+	if #M._list == 0 then
+		M._pos = 1
+	else
+		M._pos = math.min(M._pos, #M._list)
+	end
+end
+
 local function prune()
 	local new = {}
 	local new_pos = 1
+	local seen = {}
 
-	for i, b in ipairs(M._list) do
-		if buf_real(b) then
-			table.insert(new, b)
-			if i == M._pos then
-				new_pos = #new
+	for i, entry in ipairs(M._list) do
+		local path = entry
+		if type(entry) == "number" then
+			path = path_for_buf(entry)
+		end
+		if type(path) == "string" and path ~= "" and not seen[path] then
+			local b = vim.fn.bufnr(path, false)
+			local keep = false
+			if b and b > 0 and buf_valid(b) and buf_real(b) then
+				keep = true
+			elseif is_pinned_path(path) then
+				keep = true
+			end
+
+			if keep then
+				seen[path] = true
+				table.insert(new, path)
+				if i == M._pos then
+					new_pos = #new
+				end
 			end
 		end
 	end
@@ -277,11 +331,12 @@ local function prune()
 	else
 		M._pos = math.min(new_pos, #M._list)
 	end
+	enforce_max()
 end
 
-local function find_index(buf)
-	for i, b in ipairs(M._list) do
-		if b == buf then
+local function find_index(path)
+	for i, p in ipairs(M._list) do
+		if p == path then
 			return i
 		end
 	end
@@ -293,6 +348,8 @@ local function clear_preview()
 	M._preview_buf = nil
 	M._preview_key_counter_at_enter = 0
 end
+
+local close_menu
 
 -- ========= public: pins =========
 function M.pin(slot)
@@ -315,6 +372,10 @@ function M.pin(slot)
 	end
 
 	M._pins[slot] = { path = path, bufnr = cur }
+	if not find_index(path) then
+		table.insert(M._list, path)
+		enforce_max()
+	end
 	vim.notify(("MRU: pinned %s to %d"):format(vim.fn.fnamemodify(path, ":~:."), slot), vim.log.levels.INFO)
 end
 
@@ -325,6 +386,7 @@ function M.unpin(slot)
 		return
 	end
 	M._pins[slot] = nil
+	prune()
 end
 
 function M.jump(slot)
@@ -344,6 +406,10 @@ function M.jump(slot)
 	if not path then
 		vim.notify(("MRU: invalid pin in slot %d"):format(slot), vim.log.levels.WARN)
 		return
+	end
+
+	if close_menu and M._menu and M._menu.win and vim.api.nvim_win_is_valid(M._menu.win) then
+		close_menu()
 	end
 
 	local function go()
@@ -380,26 +446,25 @@ function M._record(buf)
 	if M._nav_lock then
 		return
 	end
-	if not buf_real(buf) then
+	local path = path_for_buf(buf)
+	if not path then
 		return
 	end
 
 	prune()
 
-	local idx = find_index(buf)
+	local idx = find_index(path)
 	if idx then
 		table.remove(M._list, idx)
 	end
-	table.insert(M._list, 1, buf)
+	table.insert(M._list, 1, path)
 	M._pos = 1
 
-	while #M._list > M.max do
-		table.remove(M._list, #M._list)
-	end
+	enforce_max()
 end
 
-local function goto_buf(buf, target_pos, as_preview)
-	if not buf_real(buf) then
+local function goto_path(path, target_pos, as_preview)
+	if type(path) ~= "string" or path == "" then
 		return false
 	end
 
@@ -407,13 +472,19 @@ local function goto_buf(buf, target_pos, as_preview)
 	if target_pos then
 		M._pos = target_pos
 	end
-	local ok = pcall(vim.cmd, ("buffer %d"):format(buf))
+	local ok
+	local b = vim.fn.bufnr(path, false)
+	if b and b > 0 and buf_valid(b) then
+		ok = pcall(vim.cmd, ("buffer %d"):format(b))
+	else
+		ok = pcall(vim.cmd, ("edit %s"):format(vim.fn.fnameescape(path)))
+	end
 	M._nav_lock = false
 
 	if ok and as_preview then
 		-- start preview session; commit only after real user input (movement/edit)
 		M._preview_active = true
-		M._preview_buf = buf
+		M._preview_buf = vim.api.nvim_get_current_buf()
 		M._preview_key_counter_at_enter = M._key_counter
 	end
 
@@ -429,7 +500,8 @@ function M.prev()
 	end
 
 	local cur = vim.api.nvim_get_current_buf()
-	local idx = find_index(cur)
+	local cur_path = path_for_buf(cur)
+	local idx = cur_path and find_index(cur_path) or nil
 	if idx and idx ~= M._pos then
 		M._pos = idx
 	end
@@ -440,9 +512,9 @@ function M.prev()
 		if M._pos > #M._list then
 			M._pos = 1
 		end
-		local b = M._list[M._pos]
-		if b and buf_real(b) and b ~= cur then
-			if goto_buf(b, M._pos, M.commit_on_touch) then
+		local path = M._list[M._pos]
+		if path and path ~= cur_path then
+			if goto_path(path, M._pos, M.commit_on_touch) then
 				return
 			end
 		end
@@ -460,7 +532,8 @@ function M.next()
 	end
 
 	local cur = vim.api.nvim_get_current_buf()
-	local idx = find_index(cur)
+	local cur_path = path_for_buf(cur)
+	local idx = cur_path and find_index(cur_path) or nil
 	if idx and idx ~= M._pos then
 		M._pos = idx
 	end
@@ -471,9 +544,9 @@ function M.next()
 		if M._pos < 1 then
 			M._pos = #M._list
 		end
-		local b = M._list[M._pos]
-		if b and buf_real(b) and b ~= cur then
-			if goto_buf(b, M._pos, M.commit_on_touch) then
+		local path = M._list[M._pos]
+		if path and path ~= cur_path then
+			if goto_path(path, M._pos, M.commit_on_touch) then
 				return
 			end
 		end
@@ -563,6 +636,13 @@ function M.setup(opts)
 			-- if we entered due to our MRU cycling, do not record here
 			if M._nav_lock then
 				return
+			end
+
+			-- refresh pinned bufnr when entering a pinned file
+			local path = path_for_buf(buf)
+			local slot = path and pin_slot_for_path(path) or nil
+			if slot and M._pins[slot] then
+				M._pins[slot].bufnr = buf
 			end
 
 			-- normal navigation: commit immediately
@@ -676,12 +756,16 @@ function M.setup(opts)
 	vim.api.nvim_create_user_command("MRURing", function()
 		prune()
 		local out = {}
-		for i, buf in ipairs(M._list) do
-			if buf_valid(buf) then
-				local name = vim.api.nvim_buf_get_name(buf)
-				if name and name ~= "" then
-					local here = (i == M._pos) and "  <==" or ""
-					table.insert(out, string.format("%3d  #%d  %s%s", i, buf, name, here))
+		for i, path in ipairs(M._list) do
+			if type(path) == "string" and path ~= "" then
+				local b = vim.fn.bufnr(path, false)
+				local pin_slot = pin_slot_for_path(path)
+				local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
+				local here = (i == M._pos) and "  <==" or ""
+				if b and b > 0 and buf_valid(b) then
+					table.insert(out, string.format("%3d  %s  #%d  %s%s", i, pin_tag, b, path, here))
+				else
+					table.insert(out, string.format("%3d  %s  (closed)  %s%s", i, pin_tag, path, here))
 				end
 			end
 		end
@@ -708,11 +792,13 @@ M._menu = { buf = nil, win = nil }
 local function mru_items()
 	prune()
 	local items = {}
-	for _, b in ipairs(M._list) do
-		if buf_valid(b) and buf_real(b) then
-			local name = normalize_path(vim.api.nvim_buf_get_name(b))
-			if name and name ~= "" then
-				table.insert(items, { bufnr = b, name = name })
+	for _, path in ipairs(M._list) do
+		if type(path) == "string" and path ~= "" then
+			local b = vim.fn.bufnr(path, false)
+			if b and b > 0 and buf_valid(b) and buf_real(b) then
+				table.insert(items, { path = path, bufnr = b })
+			elseif is_pinned_path(path) then
+				table.insert(items, { path = path, bufnr = nil })
 			end
 		end
 	end
@@ -722,11 +808,13 @@ end
 local function render_menu(buf, items)
 	local lines = {}
 	for i, it in ipairs(items) do
-		local pin_slot = pin_slot_for_path(it.name)
+		local pin_slot = pin_slot_for_path(it.path)
 		local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
-		local disp = vim.fn.fnamemodify(it.name, ":~:.")
-		if vim.bo[it.bufnr].modified then
+		local disp = vim.fn.fnamemodify(it.path, ":~:.")
+		if it.bufnr and vim.bo[it.bufnr].modified then
 			disp = disp .. "  [+]"
+		elseif not it.bufnr then
+			disp = disp .. "  [closed]"
 		end
 		lines[i] = string.format("%2d  %s  %s", i, pin_tag, disp)
 	end
@@ -736,7 +824,7 @@ local function render_menu(buf, items)
 	vim.bo[buf].modifiable = false
 end
 
-local function close_menu()
+close_menu = function()
 	if M._menu.win and vim.api.nvim_win_is_valid(M._menu.win) then
 		vim.api.nvim_win_close(M._menu.win, true)
 	end
@@ -753,7 +841,8 @@ function M.open_menu()
 		return
 	end
 
-	local origin_buf = vim.fn.bufnr("#")
+	local origin_buf = vim.api.nvim_get_current_buf()
+	local origin_path = path_for_buf(origin_buf)
 
 	local items = mru_items()
 	if #items == 0 then
@@ -797,12 +886,13 @@ function M.open_menu()
 	M._menu.buf, M._menu.win = buf, win
 
 	-- place cursor on current buffer if present, else first line
-	local cur = origin_buf
 	local target_line = 1
-	for i, it in ipairs(items) do
-		if it.bufnr == cur then
-			target_line = i
-			break
+	if origin_path then
+		for i, it in ipairs(items) do
+			if it.path == origin_path then
+				target_line = i
+				break
+			end
 		end
 	end
 	vim.api.nvim_win_set_cursor(win, { target_line, 0 })
@@ -828,7 +918,11 @@ function M.open_menu()
 				return
 			end
 			close_menu()
-			vim.cmd(("buffer %d"):format(it.bufnr))
+			if it.bufnr and buf_valid(it.bufnr) then
+				vim.cmd(("buffer %d"):format(it.bufnr))
+			else
+				vim.cmd(("edit %s"):format(vim.fn.fnameescape(it.path)))
+			end
 		end),
 		{ buffer = buf, silent = true }
 	)

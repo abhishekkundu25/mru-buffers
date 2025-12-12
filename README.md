@@ -7,7 +7,7 @@ Harpoon-inspired MRU switching for Neovim that keeps a unique ring of recently u
 - Maintains a capped MRU ring that ignores special buffers (Telescope, help, terminals, etc.)
 - Preview mode lets you cycle through buffers without reordering the ring until you actually edit or move
 - Protects from Telescope cancelling (cancel will not reorder the MRU list)
-- Pin up to 9 buffers and jump to them without changing MRU order
+- Pin up to 9 files; pinned entries stay in the MRU ring even after `:bd`/wipe and can be reopened
 - Harpoon-like floating menu for quick jumps plus `:MRURing` for debugging
 - Configurable keymaps, ignore rules, and "touch" events that trigger commits
 
@@ -62,6 +62,10 @@ Call `require("mru-buffers").setup()` once (usually from your plugin manager). A
 ### Preview mode
 
 Cycling uses preview semantics by default: buffers that you jump to via `H`/`L` do not get committed to the front of the MRU list until you actually touch them (insert, move, edit). Internal cursor events and repeated cycle presses are ignored so the ring stays stable while you browse around.
+
+### Pins
+
+Pins are stored by file path. If you pin a file and later delete the buffer (`:bd`, wipe, etc.), the entry remains in the MRU ring and shows as `[closed]` in the menu until you reopen it (via a pin jump, cycling, or selecting it in the menu).
 
 ## Configuration
 
