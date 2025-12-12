@@ -258,6 +258,21 @@ local function is_telescope_ui(buf)
 	return ft == "TelescopePrompt" or ft == "TelescopeResults"
 end
 
+local function normalize_file_buffer(buf)
+	if not (buf and buf_valid(buf)) then
+		return
+	end
+	if vim.bo[buf].buftype ~= "" then
+		return
+	end
+	if vim.bo[buf].bufhidden == "wipe" then
+		vim.bo[buf].bufhidden = ""
+	end
+	if vim.bo[buf].buflisted ~= true then
+		vim.bo[buf].buflisted = true
+	end
+end
+
 local function path_for_buf(buf)
 	if not buf_real(buf) then
 		return nil
@@ -448,6 +463,7 @@ function M.jump(slot)
 		-- If we still have a valid bufnr, use it.
 		if pin.bufnr and buf_valid(pin.bufnr) then
 			vim.cmd(("buffer %d"):format(pin.bufnr))
+			normalize_file_buffer(pin.bufnr)
 			return true
 		end
 
@@ -456,6 +472,7 @@ function M.jump(slot)
 		if existing and existing > 0 and buf_valid(existing) then
 			pin.bufnr = existing
 			vim.cmd(("buffer %d"):format(existing))
+			normalize_file_buffer(existing)
 			return true
 		end
 
@@ -465,12 +482,15 @@ function M.jump(slot)
 		if b and b > 0 and buf_valid(b) then
 			pin.bufnr = b
 			vim.cmd(("buffer %d"):format(b))
-			vim.bo[b].bufhidden = ""
-			vim.bo[b].buflisted = true
+			normalize_file_buffer(b)
 			return true
 		end
 
-		return pcall(vim.cmd, ("edit %s"):format(vim.fn.fnameescape(path)))
+		local ok = pcall(vim.cmd, ("edit %s"):format(vim.fn.fnameescape(path)))
+		if ok then
+			normalize_file_buffer(vim.api.nvim_get_current_buf())
+		end
+		return ok
 	end
 
 	local ok = pcall(go)
@@ -518,8 +538,12 @@ local function goto_path(path, target_pos, as_preview)
 	end
 	if b and b > 0 and buf_valid(b) then
 		ok = pcall(vim.cmd, ("buffer %d"):format(b))
+		normalize_file_buffer(b)
 	else
 		ok = pcall(vim.cmd, ("edit %s"):format(vim.fn.fnameescape(path)))
+		if ok then
+			normalize_file_buffer(vim.api.nvim_get_current_buf())
+		end
 	end
 	M._nav_lock = false
 
@@ -970,15 +994,16 @@ function M.open_menu()
 			end
 			if it.bufnr and buf_valid(it.bufnr) then
 				vim.cmd(("buffer %d"):format(it.bufnr))
+				normalize_file_buffer(it.bufnr)
 			else
 				pcall(vim.cmd, ("badd %s"):format(vim.fn.fnameescape(it.path)))
 				local b = vim.fn.bufnr(it.path, false)
 				if b and b > 0 and buf_valid(b) then
 					vim.cmd(("buffer %d"):format(b))
-					vim.bo[b].bufhidden = ""
-					vim.bo[b].buflisted = true
+					normalize_file_buffer(b)
 				else
 					vim.cmd(("edit %s"):format(vim.fn.fnameescape(it.path)))
+					normalize_file_buffer(vim.api.nvim_get_current_buf())
 				end
 			end
 		end),
