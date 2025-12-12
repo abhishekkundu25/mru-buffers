@@ -352,6 +352,37 @@ end
 local close_menu
 
 -- ========= public: pins =========
+local function first_free_pin_slot()
+	for i = 1, M.pin_slots do
+		if not M._pins[i] then
+			return i
+		end
+	end
+	return nil
+end
+
+local function pin_path(path, slot, bufnr)
+	path = normalize_path(path)
+	slot = normalize_slot(slot)
+	if not path or not slot then
+		return false
+	end
+
+	-- enforce one slot per path (if re-pinning, clear any other slot)
+	for s, p in pairs(M._pins) do
+		if s ~= slot and p and p.path == path then
+			M._pins[s] = nil
+		end
+	end
+
+	M._pins[slot] = { path = path, bufnr = bufnr }
+	if not find_index(path) then
+		table.insert(M._list, path)
+		enforce_max()
+	end
+	return true
+end
+
 function M.pin(slot)
 	slot = normalize_slot(slot)
 	if not slot then
@@ -371,18 +402,7 @@ function M.pin(slot)
 		return
 	end
 
-	-- enforce one slot per path (if re-pinning, clear any other slot)
-	for s, p in pairs(M._pins) do
-		if s ~= slot and p and p.path == path then
-			M._pins[s] = nil
-		end
-	end
-
-	M._pins[slot] = { path = path, bufnr = cur }
-	if not find_index(path) then
-		table.insert(M._list, path)
-		enforce_max()
-	end
+	pin_path(path, slot, cur)
 	vim.notify(("MRU: pinned %s to %d"):format(vim.fn.fnamemodify(path, ":~:."), slot), vim.log.levels.INFO)
 end
 
@@ -842,7 +862,7 @@ local function render_menu(buf, items)
 	end
 
 	lines[#lines + 1] = ""
-	lines[#lines + 1] = "x: unpin   q/<Esc>: close"
+	lines[#lines + 1] = "x: pin/unpin   q/<Esc>: close"
 
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -980,11 +1000,17 @@ function M.open_menu()
 				return
 			end
 			local slot = pin_slot_for_path(it.path)
-			if not slot then
-				vim.notify("MRU: not pinned", vim.log.levels.INFO)
-				return
+			if slot then
+				M.unpin(slot)
+			else
+				local free = first_free_pin_slot()
+				if not free then
+					vim.notify(("MRU: no free pin slots (1-%d)"):format(M.pin_slots), vim.log.levels.WARN)
+					return
+				end
+				pin_path(it.path, free, it.bufnr)
+				vim.notify(("MRU: pinned to %d"):format(free), vim.log.levels.INFO)
 			end
-			M.unpin(slot)
 			local refreshed = mru_items()
 			render_menu(buf, refreshed)
 			local new_row = math.min(row, #refreshed)
