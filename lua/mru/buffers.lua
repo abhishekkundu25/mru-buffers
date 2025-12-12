@@ -415,8 +415,13 @@ function M.jump(slot)
 		return
 	end
 
+	local origin_win = nil
 	if close_menu and M._menu and M._menu.win and vim.api.nvim_win_is_valid(M._menu.win) then
+		origin_win = M._menu.origin_win
 		close_menu()
+		if origin_win and vim.api.nvim_win_is_valid(origin_win) then
+			pcall(vim.api.nvim_set_current_win, origin_win)
+		end
 	end
 
 	local function go()
@@ -434,12 +439,18 @@ function M.jump(slot)
 			return true
 		end
 
-		-- Reopen from disk.
-		local ok = pcall(vim.cmd, ("edit %s"):format(vim.fn.fnameescape(path)))
-		if ok then
-			pin.bufnr = vim.api.nvim_get_current_buf()
+		-- Reopen from disk as a normal listed buffer.
+		pcall(vim.cmd, ("badd %s"):format(vim.fn.fnameescape(path)))
+		local b = vim.fn.bufnr(path, false)
+		if b and b > 0 and buf_valid(b) then
+			pin.bufnr = b
+			vim.cmd(("buffer %d"):format(b))
+			vim.bo[b].bufhidden = ""
+			vim.bo[b].buflisted = true
+			return true
 		end
-		return ok
+
+		return pcall(vim.cmd, ("edit %s"):format(vim.fn.fnameescape(path)))
 	end
 
 	local ok = pcall(go)
@@ -481,6 +492,10 @@ local function goto_path(path, target_pos, as_preview)
 	end
 	local ok
 	local b = vim.fn.bufnr(path, false)
+	if not (b and b > 0 and buf_valid(b)) then
+		pcall(vim.cmd, ("badd %s"):format(vim.fn.fnameescape(path)))
+		b = vim.fn.bufnr(path, false)
+	end
 	if b and b > 0 and buf_valid(b) then
 		ok = pcall(vim.cmd, ("buffer %d"):format(b))
 	else
@@ -841,7 +856,7 @@ close_menu = function()
 	if M._menu.buf and vim.api.nvim_buf_is_valid(M._menu.buf) then
 		vim.api.nvim_buf_delete(M._menu.buf, { force = true })
 	end
-	M._menu.win, M._menu.buf = nil, nil
+	M._menu.win, M._menu.buf, M._menu.origin_win = nil, nil, nil
 end
 
 function M.open_menu()
@@ -853,6 +868,7 @@ function M.open_menu()
 
 	local origin_buf = vim.api.nvim_get_current_buf()
 	local origin_path = path_for_buf(origin_buf)
+	local origin_win = vim.api.nvim_get_current_win()
 
 	local items = mru_items()
 	if #items == 0 then
@@ -894,6 +910,7 @@ function M.open_menu()
 	vim.wo[win].signcolumn = "no"
 
 	M._menu.buf, M._menu.win = buf, win
+	M._menu.origin_win = origin_win
 
 	-- place cursor on current buffer if present, else first line
 	local target_line = 1
@@ -928,10 +945,21 @@ function M.open_menu()
 				return
 			end
 			close_menu()
+			if M._menu.origin_win and vim.api.nvim_win_is_valid(M._menu.origin_win) then
+				pcall(vim.api.nvim_set_current_win, M._menu.origin_win)
+			end
 			if it.bufnr and buf_valid(it.bufnr) then
 				vim.cmd(("buffer %d"):format(it.bufnr))
 			else
-				vim.cmd(("edit %s"):format(vim.fn.fnameescape(it.path)))
+				pcall(vim.cmd, ("badd %s"):format(vim.fn.fnameescape(it.path)))
+				local b = vim.fn.bufnr(it.path, false)
+				if b and b > 0 and buf_valid(b) then
+					vim.cmd(("buffer %d"):format(b))
+					vim.bo[b].bufhidden = ""
+					vim.bo[b].buflisted = true
+				else
+					vim.cmd(("edit %s"):format(vim.fn.fnameescape(it.path)))
+				end
 			end
 		end),
 		{ buffer = buf, silent = true }
