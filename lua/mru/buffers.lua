@@ -2,6 +2,10 @@ local DEFAULT_KEYMAPS = {
 	menu = "<leader>he",
 	prev = "H",
 	next = "L",
+	pins = {
+		set_prefix = "<leader>p", -- <leader>p1..9 to pin current buffer
+		jump_prefix = "<leader>", -- <leader>1..9 to jump to pinned buffer
+	},
 }
 
 local M = {}
@@ -35,6 +39,10 @@ M._key_ns = nil
 M._ui_active = false
 M._ui_origin_buf = nil
 M._ui_origin_pos = nil
+
+-- Pin slots (1..pin_slots)
+M.pin_slots = 9
+M._pins = {} -- slot -> { path = string, bufnr = number|nil }
 
 -- Keys used for cycling (so we can ignore them in "touch" logic)
 M.cycle_keys = {}
@@ -129,6 +137,25 @@ local function apply_keymaps()
 	map(maps.next, function()
 		M.next()
 	end, "MRU cycle next")
+
+	local pins = maps.pins
+	if pins ~= false then
+		local set_prefix = type(pins) == "table" and pins.set_prefix or DEFAULT_KEYMAPS.pins.set_prefix
+		local jump_prefix = type(pins) == "table" and pins.jump_prefix or DEFAULT_KEYMAPS.pins.jump_prefix
+
+		for i = 1, M.pin_slots do
+			if set_prefix and set_prefix ~= "" then
+				map(set_prefix .. tostring(i), function()
+					M.pin(i)
+				end, ("MRU pin %d"):format(i))
+			end
+			if jump_prefix and jump_prefix ~= "" then
+				map(jump_prefix .. tostring(i), function()
+					M.jump(i)
+				end, ("MRU jump pin %d"):format(i))
+			end
+		end
+	end
 end
 
 update_cycle_keys()
@@ -138,6 +165,16 @@ local function buf_valid(buf)
 	return type(buf) == "number" and vim.api.nvim_buf_is_valid(buf)
 end
 
+local function with_nav_lock(fn)
+	local prev = M._nav_lock
+	M._nav_lock = true
+	local ok, err = pcall(fn)
+	M._nav_lock = prev
+	if not ok then
+		error(err)
+	end
+end
+
 local function list_contains(t, v)
 	for _, x in ipairs(t) do
 		if x == v then
@@ -145,6 +182,36 @@ local function list_contains(t, v)
 		end
 	end
 	return false
+end
+
+local function normalize_path(path)
+	if not path or path == "" then
+		return nil
+	end
+	return vim.fn.fnamemodify(path, ":p")
+end
+
+local function normalize_slot(slot)
+	slot = tonumber(slot)
+	if not slot then
+		return nil
+	end
+	if slot < 1 or slot > M.pin_slots then
+		return nil
+	end
+	return slot
+end
+
+local function pin_slot_for_path(path)
+	if not path or path == "" then
+		return nil
+	end
+	for slot, pin in pairs(M._pins) do
+		if pin and pin.path == path then
+			return slot
+		end
+	end
+	return nil
 end
 
 local function name_matches(name)
@@ -235,6 +302,90 @@ local function clear_preview()
 	M._preview_active = false
 	M._preview_buf = nil
 	M._preview_key_counter_at_enter = 0
+end
+
+-- ========= public: pins =========
+function M.pin(slot)
+	slot = normalize_slot(slot)
+	if not slot then
+		vim.notify(("MRU: pin slot must be 1-%d"):format(M.pin_slots), vim.log.levels.WARN)
+		return
+	end
+
+	local cur = vim.api.nvim_get_current_buf()
+	if not buf_real(cur) then
+		vim.notify("MRU: cannot pin this buffer", vim.log.levels.WARN)
+		return
+	end
+
+	local path = normalize_path(vim.api.nvim_buf_get_name(cur))
+	if not path then
+		vim.notify("MRU: cannot pin unnamed buffer", vim.log.levels.WARN)
+		return
+	end
+
+	M._pins[slot] = { path = path, bufnr = cur }
+	vim.notify(("MRU: pinned %s to %d"):format(vim.fn.fnamemodify(path, ":~:."), slot), vim.log.levels.INFO)
+end
+
+function M.unpin(slot)
+	slot = normalize_slot(slot)
+	if not slot then
+		vim.notify(("MRU: pin slot must be 1-%d"):format(M.pin_slots), vim.log.levels.WARN)
+		return
+	end
+	M._pins[slot] = nil
+end
+
+function M.jump(slot)
+	slot = normalize_slot(slot)
+	if not slot then
+		vim.notify(("MRU: pin slot must be 1-%d"):format(M.pin_slots), vim.log.levels.WARN)
+		return
+	end
+
+	local pin = M._pins[slot]
+	if not pin or not pin.path then
+		vim.notify(("MRU: no pin in slot %d"):format(slot), vim.log.levels.INFO)
+		return
+	end
+
+	local path = normalize_path(pin.path)
+	if not path then
+		vim.notify(("MRU: invalid pin in slot %d"):format(slot), vim.log.levels.WARN)
+		return
+	end
+
+	-- IMPORTANT: jumping to a pin must not reorder the MRU ring.
+	local function go()
+		-- If we still have a valid bufnr, use it.
+		if pin.bufnr and buf_valid(pin.bufnr) then
+			vim.cmd(("buffer %d"):format(pin.bufnr))
+			return true
+		end
+
+		-- Try to find an existing buffer for this path.
+		local existing = vim.fn.bufnr(path, false)
+		if existing and existing > 0 and buf_valid(existing) then
+			pin.bufnr = existing
+			vim.cmd(("buffer %d"):format(existing))
+			return true
+		end
+
+		-- Reopen from disk.
+		local ok = pcall(vim.cmd, ("edit %s"):format(vim.fn.fnameescape(path)))
+		if ok then
+			pin.bufnr = vim.api.nvim_get_current_buf()
+		end
+		return ok
+	end
+
+	local ok = pcall(function()
+		with_nav_lock(go)
+	end)
+	if not ok then
+		vim.notify(("MRU: failed to open pin %d"):format(slot), vim.log.levels.WARN)
+	end
 end
 
 -- Promote buf to front (MRU), unique list, capped
@@ -487,7 +638,15 @@ function M.setup(opts)
 
 	vim.api.nvim_create_autocmd("BufWipeout", {
 		group = M._augroup,
-		callback = function()
+		callback = function(args)
+			-- keep pins even if the underlying buffer is wiped
+			if args and args.buf then
+				for _, pin in pairs(M._pins) do
+					if pin and pin.bufnr == args.buf then
+						pin.bufnr = nil
+					end
+				end
+			end
 			prune()
 			if M._preview_active and not buf_valid(M._preview_buf) then
 				clear_preview()
@@ -498,6 +657,26 @@ function M.setup(opts)
 	vim.api.nvim_create_user_command("MRUMenu", function()
 		M.open_menu()
 	end, { force = true })
+
+	vim.api.nvim_create_user_command("MRUPin", function(cmd)
+		M.pin(cmd.args)
+	end, { nargs = 1, force = true, complete = function()
+		local out = {}
+		for i = 1, M.pin_slots do
+			out[#out + 1] = tostring(i)
+		end
+		return out
+	end })
+
+	vim.api.nvim_create_user_command("MRUUnpin", function(cmd)
+		M.unpin(cmd.args)
+	end, { nargs = 1, force = true, complete = function()
+		local out = {}
+		for i = 1, M.pin_slots do
+			out[#out + 1] = tostring(i)
+		end
+		return out
+	end })
 
 	vim.api.nvim_create_user_command("MRURing", function()
 		prune()
@@ -536,7 +715,7 @@ local function mru_items()
 	local items = {}
 	for _, b in ipairs(M._list) do
 		if buf_valid(b) and buf_real(b) then
-			local name = vim.api.nvim_buf_get_name(b)
+			local name = normalize_path(vim.api.nvim_buf_get_name(b))
 			if name and name ~= "" then
 				table.insert(items, { bufnr = b, name = name })
 			end
@@ -548,11 +727,13 @@ end
 local function render_menu(buf, items)
 	local lines = {}
 	for i, it in ipairs(items) do
+		local pin_slot = pin_slot_for_path(it.name)
+		local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
 		local disp = vim.fn.fnamemodify(it.name, ":~:.")
 		if vim.bo[it.bufnr].modified then
 			disp = disp .. "  [+]"
 		end
-		lines[i] = string.format("%2d  %s", i, disp)
+		lines[i] = string.format("%2d  %s  %s", i, pin_tag, disp)
 	end
 
 	vim.bo[buf].modifiable = true
@@ -576,6 +757,8 @@ function M.open_menu()
 		close_menu()
 		return
 	end
+
+	local origin_buf = vim.fn.bufnr("#")
 
 	local items = mru_items()
 	if #items == 0 then
@@ -619,7 +802,7 @@ function M.open_menu()
 	M._menu.buf, M._menu.win = buf, win
 
 	-- place cursor on current buffer if present, else first line
-	local cur = vim.api.nvim_get_current_buf()
+	local cur = origin_buf
 	local target_line = 1
 	for i, it in ipairs(items) do
 		if it.bufnr == cur then

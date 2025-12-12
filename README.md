@@ -7,6 +7,7 @@ Harpoon-inspired MRU switching for Neovim that keeps a unique ring of recently u
 - Maintains a capped MRU ring that ignores special buffers (Telescope, help, terminals, etc.)
 - Preview mode lets you cycle through buffers without reordering the ring until you actually edit or move
 - Protects from Telescope cancelling (cancel will not reorder the MRU list)
+- Pin up to 9 buffers and jump to them without changing MRU order
 - Harpoon-like floating menu for quick jumps plus `:MRURing` for debugging
 - Configurable keymaps, ignore rules, and "touch" events that trigger commits
 
@@ -49,8 +50,12 @@ Call `require("mru-buffers").setup()` once (usually from your plugin manager). A
   - `H`: cycle to previous entry in the MRU ring
   - `L`: cycle to next entry
   - `<leader>he`: open the floating MRU menu
+  - `<leader>p1`..`<leader>p9`: pin current buffer to slot 1..9
+  - `<leader>1`..`<leader>9`: jump to pinned slot 1..9 (does not reorder MRU)
 - Commands:
   - `:MRUMenu`: toggle the menu
+  - `:MRUPin {1..9}`: pin current buffer to a slot
+  - `:MRUUnpin {1..9}`: clear a pin slot
   - `:MRURing`: print the ring in `vim.notify`
 - Lua helpers: `require("mru-buffers").prev()`, `.next()`, `.open_menu()`, etc. if you want to create custom maps or integrate elsewhere.
 
@@ -80,8 +85,12 @@ require("mru-buffers").setup({
     menu = "<leader>bm",
     prev = "[b",
     next = "]b",
+    pins = {
+      set_prefix = "<leader>bp", -- <leader>bp1..9 to pin
+      jump_prefix = "<leader>b", -- <leader>b1..9 to jump
+    },
   },
-  cycle_keys = { prev = "[b", next = "]b" }, -- needed only when overriding the defaults manually
+  cycle_keys = { prev = "[b", next = "]b" },
   ignore = {
     filetype = { "startify" },
   },
