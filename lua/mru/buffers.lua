@@ -165,16 +165,6 @@ local function buf_valid(buf)
 	return type(buf) == "number" and vim.api.nvim_buf_is_valid(buf)
 end
 
-local function with_nav_lock(fn)
-	local prev = M._nav_lock
-	M._nav_lock = true
-	local ok, err = pcall(fn)
-	M._nav_lock = prev
-	if not ok then
-		error(err)
-	end
-end
-
 local function list_contains(t, v)
 	for _, x in ipairs(t) do
 		if x == v then
@@ -356,7 +346,6 @@ function M.jump(slot)
 		return
 	end
 
-	-- IMPORTANT: jumping to a pin must not reorder the MRU ring.
 	local function go()
 		-- If we still have a valid bufnr, use it.
 		if pin.bufnr and buf_valid(pin.bufnr) then
@@ -380,9 +369,7 @@ function M.jump(slot)
 		return ok
 	end
 
-	local ok = pcall(function()
-		with_nav_lock(go)
-	end)
+	local ok = pcall(go)
 	if not ok then
 		vim.notify(("MRU: failed to open pin %d"):format(slot), vim.log.levels.WARN)
 	end
@@ -660,23 +647,31 @@ function M.setup(opts)
 
 	vim.api.nvim_create_user_command("MRUPin", function(cmd)
 		M.pin(cmd.args)
-	end, { nargs = 1, force = true, complete = function()
-		local out = {}
-		for i = 1, M.pin_slots do
-			out[#out + 1] = tostring(i)
-		end
-		return out
-	end })
+	end, {
+		nargs = 1,
+		force = true,
+		complete = function()
+			local out = {}
+			for i = 1, M.pin_slots do
+				out[#out + 1] = tostring(i)
+			end
+			return out
+		end,
+	})
 
 	vim.api.nvim_create_user_command("MRUUnpin", function(cmd)
 		M.unpin(cmd.args)
-	end, { nargs = 1, force = true, complete = function()
-		local out = {}
-		for i = 1, M.pin_slots do
-			out[#out + 1] = tostring(i)
-		end
-		return out
-	end })
+	end, {
+		nargs = 1,
+		force = true,
+		complete = function()
+			local out = {}
+			for i = 1, M.pin_slots do
+				out[#out + 1] = tostring(i)
+			end
+			return out
+		end,
+	})
 
 	vim.api.nvim_create_user_command("MRURing", function()
 		prune()

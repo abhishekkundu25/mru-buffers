@@ -51,7 +51,7 @@ Call `require("mru-buffers").setup()` once (usually from your plugin manager). A
   - `L`: cycle to next entry
   - `<leader>he`: open the floating MRU menu
   - `<leader>p1`..`<leader>p9`: pin current buffer to slot 1..9
-  - `<leader>1`..`<leader>9`: jump to pinned slot 1..9 (does not reorder MRU)
+  - `<leader>1`..`<leader>9`: jump to pinned slot 1..9
 - Commands:
   - `:MRUMenu`: toggle the menu
   - `:MRUPin {1..9}`: pin current buffer to a slot
