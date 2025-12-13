@@ -81,6 +81,8 @@ In the menu, press `x` to unpin the selected entry.
 | `ignore` | table | Extend the built-in ignore lists (`buftype`, `filetype`, `name_patterns`). Uses `vim.tbl_deep_extend`. |
 | `keymaps` | table/`false`/`true` | Provide your own default maps (`{ menu = "...", prev = "...", next = "..." }`). Set to `false` to skip installing keymaps; set to `true` to reset to defaults. |
 | `cycle_keys` | table | Extra keys that should be ignored while in preview mode. By default the plugin infers this from the configured `keymaps`. When `keymaps = false`, you should set this manually to match the mappings you define yourself. |
+| `persist_pins` | boolean | Persist pinned slots to disk and reload on startup (default `false`). |
+| `persist_file` | string | Override the persistence file path (default `stdpath("data") .. "/mru-buffers-pins.json"`). |
 
 Example:
 

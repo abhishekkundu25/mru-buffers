@@ -44,6 +44,10 @@ M._ui_origin_pos = nil
 M.pin_slots = 9
 M._pins = {} -- slot -> { path = string, bufnr = number|nil }
 
+-- Pin persistence (opt-in)
+M.persist_pins = false
+M.persist_file = nil
+
 -- Keys used for cycling (so we can ignore them in "touch" logic)
 M.cycle_keys = {}
 
@@ -179,6 +183,20 @@ local function normalize_path(path)
 		return nil
 	end
 	return vim.fn.fnamemodify(path, ":p")
+end
+
+local function json_encode(v)
+	if vim.json and vim.json.encode then
+		return vim.json.encode(v)
+	end
+	return vim.fn.json_encode(v)
+end
+
+local function json_decode(s)
+	if vim.json and vim.json.decode then
+		return vim.json.decode(s)
+	end
+	return vim.fn.json_decode(s)
 end
 
 local function normalize_slot(slot)
@@ -398,6 +416,66 @@ local function pin_path(path, slot, bufnr)
 	return true
 end
 
+local function persist_path()
+	if type(M.persist_file) == "string" and M.persist_file ~= "" then
+		return M.persist_file
+	end
+	return vim.fn.stdpath("data") .. "/mru-buffers-pins.json"
+end
+
+local function save_pins()
+	if not M.persist_pins then
+		return
+	end
+
+	local out = { version = 1, pins = {} }
+	for slot = 1, M.pin_slots do
+		local pin = M._pins[slot]
+		if pin and pin.path and pin.path ~= "" then
+			out.pins[tostring(slot)] = { path = pin.path }
+		end
+	end
+
+	local ok, encoded = pcall(json_encode, out)
+	if not ok or type(encoded) ~= "string" then
+		return
+	end
+
+	local file = persist_path()
+	pcall(vim.fn.writefile, { encoded }, file)
+end
+
+local function load_pins()
+	if not M.persist_pins then
+		return
+	end
+
+	local file = persist_path()
+	if vim.fn.filereadable(file) ~= 1 then
+		return
+	end
+
+	local lines = vim.fn.readfile(file)
+	local decoded_ok, decoded = pcall(json_decode, table.concat(lines, "\n"))
+	if not decoded_ok or type(decoded) ~= "table" then
+		return
+	end
+
+	local pins = decoded.pins
+	if type(pins) ~= "table" then
+		return
+	end
+
+	for slot_str, pin in pairs(pins) do
+		local slot = normalize_slot(slot_str)
+		local path = type(pin) == "table" and pin.path or nil
+		path = normalize_path(path)
+		if slot and path then
+			pin_path(path, slot, nil)
+		end
+	end
+end
+
 function M.pin(slot)
 	slot = normalize_slot(slot)
 	if not slot then
@@ -418,6 +496,7 @@ function M.pin(slot)
 	end
 
 	pin_path(path, slot, cur)
+	save_pins()
 	vim.notify(("MRU: pinned %s to %d"):format(vim.fn.fnamemodify(path, ":~:."), slot), vim.log.levels.INFO)
 end
 
@@ -429,6 +508,7 @@ function M.unpin(slot)
 	end
 	M._pins[slot] = nil
 	prune()
+	save_pins()
 end
 
 function M.jump(slot)
@@ -645,6 +725,13 @@ function M.setup(opts)
 	end
 	update_cycle_keys(opts.cycle_keys)
 
+	if opts.persist_pins ~= nil then
+		M.persist_pins = opts.persist_pins == true
+	end
+	if opts.persist_file ~= nil then
+		M.persist_file = opts.persist_file
+	end
+
 	if not M._augroup then
 		M._augroup = vim.api.nvim_create_augroup("MRUBuffers", { clear = true })
 	else
@@ -786,6 +873,16 @@ function M.setup(opts)
 			end
 		end,
 	})
+
+	if M.persist_pins then
+		load_pins()
+		vim.api.nvim_create_autocmd("VimLeavePre", {
+			group = M._augroup,
+			callback = function()
+				save_pins()
+			end,
+		})
+	end
 
 	vim.api.nvim_create_user_command("MRUMenu", function()
 		M.open_menu()
