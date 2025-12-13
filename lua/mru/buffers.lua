@@ -902,6 +902,7 @@ function M.setup(opts)
 			render_menu(M._menu.buf, fresh)
 			local max_row = math.max(1, math.min(row, #fresh))
 			pcall(vim.api.nvim_win_set_cursor, M._menu.win, { max_row, 0 })
+			update_menu_footer(M._menu.buf, M._menu.win, M._menu.items or fresh)
 		end,
 	})
 
@@ -1057,6 +1058,76 @@ local function should_wrap_lines(win, lines)
 	return false
 end
 
+local function footer_action_for_row(items, row)
+	if type(items) ~= "table" or #items == 0 then
+		return "x: pin/unpin"
+	end
+	if type(row) ~= "number" or row < 1 or row > #items then
+		return "x: pin/unpin"
+	end
+
+	local it = items[row]
+	if not it or not it.path then
+		return "x: pin/unpin"
+	end
+
+	local slot = pin_slot_for_path(it.path)
+	if slot then
+		return ("x: unpin [%d]"):format(slot)
+	end
+
+	local free = first_free_pin_slot()
+	if free then
+		return ("x: pin -> [%d]"):format(free)
+	end
+	return ("x: pin (no slots %d-%d)"):format(1, M.pin_slots)
+end
+
+local function update_menu_footer(buf, win, items)
+	if not (buf and vim.api.nvim_buf_is_valid(buf)) then
+		return
+	end
+	if not (win and vim.api.nvim_win_is_valid(win)) then
+		return
+	end
+
+	local line_count = vim.api.nvim_buf_line_count(buf)
+	if line_count < 1 then
+		return
+	end
+
+	local row = vim.api.nvim_win_get_cursor(win)[1]
+	local x_action = footer_action_for_row(items, row)
+
+	local fancy = M.ui and M.ui.fancy == true
+	local sep = fancy and "  •  " or "   "
+	local parts = {
+		x_action,
+		"<CR>: open",
+		"r: refresh",
+		"H/L: cycle",
+		"q/<Esc>: close",
+	}
+	if not fancy then
+		parts = { x_action, "q/<Esc>: close" }
+	end
+
+	local footer = table.concat(parts, sep)
+
+	vim.bo[buf].modifiable = true
+	vim.api.nvim_buf_set_lines(buf, line_count - 1, line_count, false, { footer })
+	vim.bo[buf].modifiable = false
+
+	if fancy then
+		setup_ui_highlights()
+		vim.api.nvim_buf_add_highlight(buf, M._ui_ns, "MRUBuffersHint", line_count - 1, 0, -1)
+	end
+
+	-- footer length may change; re-evaluate wrapping
+	local all = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+	set_menu_wrapping(win, should_wrap_lines(win, all))
+end
+
 local function mru_items()
 	prune()
 	local items = {}
@@ -1100,6 +1171,9 @@ local function render_menu(buf, items)
 		local winid = vim.fn.bufwinid(buf)
 		if winid and winid ~= -1 then
 			set_menu_wrapping(winid, should_wrap_lines(winid, lines))
+		end
+		if M._menu and M._menu.buf == buf then
+			M._menu.items = items
 		end
 		return
 	end
@@ -1159,6 +1233,9 @@ local function render_menu(buf, items)
 	if winid and winid ~= -1 then
 		set_menu_wrapping(winid, should_wrap_lines(winid, lines))
 	end
+	if M._menu and M._menu.buf == buf then
+		M._menu.items = items
+	end
 
 	vim.api.nvim_buf_clear_namespace(buf, M._ui_ns, 0, -1)
 	for i = 1, #items do
@@ -1193,12 +1270,7 @@ local function render_menu(buf, items)
 		end
 	end
 
-	if M.ui.show_footer ~= false then
-		local hint_row = #lines
-		if lines[hint_row] and lines[hint_row] ~= "" then
-			vim.api.nvim_buf_add_highlight(buf, M._ui_ns, "MRUBuffersHint", hint_row - 1, 0, -1)
-		end
-	end
+	-- Footer highlight is applied by update_menu_footer() so it can stay in sync with dynamic text.
 end
 
 close_menu = function()
@@ -1285,6 +1357,18 @@ function M.open_menu()
 		end
 	end
 	vim.api.nvim_win_set_cursor(win, { target_line, 0 })
+	update_menu_footer(buf, win, M._menu.items or items)
+
+	vim.api.nvim_create_autocmd("CursorMoved", {
+		group = M._augroup,
+		buffer = buf,
+		callback = function()
+			if not (M._menu.win and vim.api.nvim_win_is_valid(M._menu.win)) then
+				return
+			end
+			update_menu_footer(buf, M._menu.win, M._menu.items or items)
+		end,
+	})
 
 	local function with_items(fn)
 		return function()
@@ -1358,6 +1442,7 @@ function M.open_menu()
 			render_menu(buf, refreshed)
 			local new_row = math.min(row, #refreshed)
 			vim.api.nvim_win_set_cursor(0, { math.max(1, new_row), 0 })
+			update_menu_footer(buf, win, M._menu.items or refreshed)
 		end),
 		{ buffer = buf, silent = true, desc = "Unpin selected" }
 	)
@@ -1366,6 +1451,7 @@ function M.open_menu()
 	vim.keymap.set("n", "r", function()
 		local fresh = mru_items()
 		render_menu(buf, fresh)
+		update_menu_footer(buf, win, M._menu.items or fresh)
 	end, { buffer = buf, silent = true, desc = "Refresh MRU menu" })
 
 	-- Optional: cycle MRU while menu is open (keeps your cycle behavior)
