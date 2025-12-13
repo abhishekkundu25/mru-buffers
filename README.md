@@ -66,7 +66,10 @@ Cycling uses preview semantics by default: buffers that you jump to via your cyc
 
 Pins are stored by file path. If you pin a file and later delete the buffer (`:bd`, wipe, etc.), the entry remains in the MRU ring and shows as `[closed]` in the menu until you reopen it (via a pin jump, cycling, or selecting it in the menu).
 
-In the menu, press `x` to unpin the selected entry.
+In the menu:
+- `x`: pin/unpin selected entry
+- `X`: pin from the top of the MRU list into free slots (1..9)
+- `c`: close selected buffer (only if saved)
 
 ## Configuration
 

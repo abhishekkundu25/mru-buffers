@@ -139,6 +139,34 @@ return function(M, U)
 		return "X: no slots"
 	end
 
+	local function footer_close_hint(items, row)
+		if type(items) ~= "table" or #items == 0 then
+			return "c: close"
+		end
+		if type(row) ~= "number" or row < 1 or row > #items then
+			return "c: close"
+		end
+
+		local it = items[row]
+		if not it or not it.path then
+			return "c: close"
+		end
+
+		local bufnr = it.bufnr
+		if not (bufnr and U.buf_valid(bufnr)) then
+			local b = vim.fn.bufnr(it.path, false)
+			bufnr = (b and b > 0 and U.buf_valid(b)) and b or nil
+		end
+
+		if not bufnr then
+			return "c: closed"
+		end
+		if vim.bo[bufnr].modified then
+			return "c: modified"
+		end
+		return "c: close"
+	end
+
 	local function update_menu_footer(footer_buf, footer_win, list_win, items)
 		if not (footer_buf and vim.api.nvim_buf_is_valid(footer_buf)) then
 			return
@@ -152,6 +180,7 @@ return function(M, U)
 
 		local row = vim.api.nvim_win_get_cursor(list_win)[1]
 		local x_action = footer_action_for_row(items, row)
+		local c_action = footer_close_hint(items, row)
 
 		local fancy = M.ui and M.ui.fancy == true
 		local sep = fancy and "  •  " or "   "
@@ -177,13 +206,14 @@ return function(M, U)
 		local parts = {
 			x_action,
 			footer_bulk_pin_hint(),
+			c_action,
 			"<CR>: open",
 			"r: refresh",
 			cycle_hint(),
 			"q/<Esc>: close",
 		}
 		if not fancy then
-			parts = { x_action, footer_bulk_pin_hint(), "q/<Esc>: close" }
+			parts = { x_action, footer_bulk_pin_hint(), c_action, "q/<Esc>: close" }
 		end
 
 		local footer = table.concat(parts, sep)
@@ -587,6 +617,67 @@ return function(M, U)
 		vim.keymap.set("n", "<Esc>", function()
 			M._close_menu()
 		end, { buffer = list_buf, silent = true })
+
+		-- Close selected buffer (only if it has no unsaved changes). Pinned entries
+		-- are still kept in the MRU ring and will show as [closed] after close.
+		vim.keymap.set(
+			"n",
+			"c",
+			with_items(function(fresh)
+				local row = vim.api.nvim_win_get_cursor(0)[1]
+				local it = fresh[row]
+				if not it or not it.path then
+					return
+				end
+
+				local bufnr = it.bufnr
+				if not (bufnr and U.buf_valid(bufnr)) then
+					local b = vim.fn.bufnr(it.path, false)
+					bufnr = (b and b > 0 and U.buf_valid(b)) and b or nil
+				end
+				if not bufnr then
+					vim.notify("MRU: buffer already closed", vim.log.levels.INFO)
+					return
+				end
+
+				if vim.bo[bufnr].modified then
+					vim.notify("MRU: buffer has unsaved changes", vim.log.levels.WARN)
+					return
+				end
+
+				local origin_win = M._menu and M._menu.origin_win or nil
+				local list_win = M._menu and M._menu.list_win or nil
+				local win_before = vim.api.nvim_get_current_win()
+
+				-- `nvim_buf_delete` behaves more reliably when invoked from a normal
+				-- editor window (not a floating menu window), so temporarily switch.
+				if origin_win and vim.api.nvim_win_is_valid(origin_win) then
+					pcall(vim.api.nvim_set_current_win, origin_win)
+				end
+
+				local ok = pcall(vim.api.nvim_buf_delete, bufnr, { force = false })
+
+				-- Restore focus to the menu if it still exists.
+				if list_win and vim.api.nvim_win_is_valid(list_win) then
+					pcall(vim.api.nvim_set_current_win, list_win)
+				else
+					pcall(vim.api.nvim_set_current_win, win_before)
+				end
+				if not ok then
+					vim.notify("MRU: failed to close buffer", vim.log.levels.WARN)
+					return
+				end
+
+				local refreshed = mru_items()
+				render_menu(list_buf, list_win, refreshed)
+				local new_row = math.min(row, #refreshed)
+				vim.api.nvim_win_set_cursor(0, { math.max(1, new_row), 0 })
+				if footer_enabled and footer_buf and footer_win then
+					update_menu_footer(footer_buf, footer_win, list_win, M._menu.items or refreshed)
+				end
+			end),
+			{ buffer = list_buf, silent = true, desc = "Close buffer (if saved)" }
+		)
 
 		vim.keymap.set(
 			"n",
