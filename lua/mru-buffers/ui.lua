@@ -263,7 +263,7 @@ return function(M, U)
 				local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
 				local disp = vim.fn.fnamemodify(it.path, ":~:.")
 				if it.bufnr and vim.bo[it.bufnr].modified then
-					disp = disp .. "  [+]"
+					disp = disp .. "  [unsaved]"
 				elseif not it.bufnr then
 					disp = disp .. "  [closed]"
 				end
@@ -458,7 +458,8 @@ return function(M, U)
 
 		if M.ui.fancy == true then
 			setup_ui_highlights()
-			vim.wo[frame_win].winhighlight = "Normal:MRUBuffersNormal,FloatBorder:MRUBuffersBorder,FloatTitle:MRUBuffersTitle"
+			vim.wo[frame_win].winhighlight =
+				"Normal:MRUBuffersNormal,FloatBorder:MRUBuffersBorder,FloatTitle:MRUBuffersTitle"
 		end
 
 		local list_buf = vim.api.nvim_create_buf(false, true)
