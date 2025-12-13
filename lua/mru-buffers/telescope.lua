@@ -243,7 +243,7 @@ return function(M, U)
 
 		pickers
 			.new(opts, {
-				prompt_title = "MRU Buffers",
+				prompt_title = "MRU Buffers  x:pin  X:bulk-pin  c:close",
 				finder = make_finder(),
 				sorter = conf.generic_sorter(opts),
 				-- Use Telescope's configured file previewer for broad compatibility
