@@ -6,7 +6,7 @@ Harpoon-inspired MRU switching for Neovim that keeps a unique ring of recently u
 
 - Maintains a capped MRU ring that ignores special buffers (Telescope, help, terminals, etc.)
 - Preview mode lets you cycle through buffers without reordering the ring until you actually edit or move
-- Pin up to 9 files; pinned entries stay in the MRU ring even after `:bd`/wipe and can be reopened
+- Pin up to 9 files (globally or per-project); pinned entries stay in the MRU ring even after `:bd`/wipe and can be reopened
 - Configurable keymaps, ignore rules, and "touch" events that trigger commits
 
 ## Requirements
@@ -21,7 +21,7 @@ Harpoon-inspired MRU switching for Neovim that keeps a unique ring of recently u
 {
   "abhishekkundu25/mru-buffers",
   event = "VeryLazy",
-  version = "0.8",
+  -- version = "0.8", -- pin to a tag; omit / set to false to use main
   config = function()
     require("mru-buffers").setup({
       -- optional configuration
@@ -66,7 +66,18 @@ Cycling uses preview semantics by default: buffers that you jump to via your cyc
 
 Pins are stored by file path. If you pin a file and later delete the buffer (`:bd`, wipe, etc.), the entry remains in the MRU ring and shows as `[closed]` in the menu until you reopen it (via a pin jump, cycling, or selecting it in the menu).
 
-In the menu, press `x` to unpin the selected entry.
+- In the menu:
+  - `x`: pin/unpin the selected entry
+  - `X`: pin from the top of the MRU list into all free slots (1..9), without affecting existing pins
+
+#### Project-scoped pins (optional)
+
+Set `pins.scope = "project"` to have a separate `1..9` pin set per project root (detected from the current buffer). When `persist_pins = true`, pins are saved per-root using paths relative to that root.
+
+Notes:
+- Pin *slots* are project-scoped, but the MRU ring is still global.
+- The menu shows pin tags (`[1]..[9]`) for the menu’s origin project.
+- `jump` keymaps (`<leader>1..9` by default) use the current buffer’s project; if you trigger them while the menu is open they use the menu’s origin project.
 
 ## Configuration
 
@@ -80,9 +91,10 @@ In the menu, press `x` to unpin the selected entry.
 | `ignore` | table | (built-in) | Extend the built-in ignore lists (`buftype`, `filetype`, `name_patterns`). Uses `vim.tbl_deep_extend`. |
 | `keymaps` | table/`false`/`true` | (built-in) | Provide your own default maps (`{ menu, prev, next, pins = { set_prefix, jump_prefix } }`). Set to `false` to skip installing keymaps; set to `true` to reset to defaults. |
 | `cycle_keys` | table | (derived) | Extra keys that should be ignored while in preview mode. By default the plugin infers this from the configured `keymaps`. When `keymaps = false`, set this manually. |
+| `pins` | table | `{ scope = "global", markers = { ".git" }, root = nil }` | Pin behavior (`scope = "global"` or `"project"`). For `"project"`, the active root is detected from the current buffer using `markers` (or `root(bufnr)` if provided). |
 | `ui` | table | (built-in) | MRU menu UI options (see below). |
 | `persist_pins` | boolean | `false` | Persist pinned slots to disk and reload on startup. |
-| `persist_file` | string | `stdpath("data") .. "/mru-buffers-pins.json"` | Override the persistence file path. |
+| `persist_file` | string | `stdpath("data") .. "/mru-buffers-pins.json"` (global) / `stdpath("data") .. "/mru-buffers-pins-project.json"` (project) | Override the persistence file path. |
 
 ### UI options (`ui`)
 
@@ -126,6 +138,11 @@ require("mru-buffers").setup({
     show_count_in_title = true,
     show_footer = true,
   },
+  pins = {
+    scope = "project", -- or "global"
+    markers = { ".git" }, -- used to detect project root
+    -- root = function(bufnr) ... end, -- optional override
+  },
   persist_pins = true,
 })
 ```
@@ -140,6 +157,7 @@ require("mru-buffers").setup({
   config = function()
     require("mru-buffers").setup({
       max = 80,
+      pins = { scope = "project" },
       persist_pins = true,
       keymaps = {
         menu = "<leader>m",
@@ -178,7 +196,7 @@ require("mru-buffers").setup({
 - `lua/mru-buffers/setup.lua` `setup()`, autocmds, user commands, keymaps.
 - `lua/mru/buffers.lua` is a compatibility wrapper for `require("mru.buffers")`.
 
-Contributions and bug reports are welcome once the repository is published.
+Contributions and bug reports are welcome.
 
 ## License
 

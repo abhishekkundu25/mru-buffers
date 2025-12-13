@@ -86,6 +86,30 @@ return function(M, U)
 	function M.setup(opts)
 		opts = opts or {}
 
+		if type(opts.pins) == "table" then
+			if type(opts.pins.scope) == "string" then
+				M.pins_scope = opts.pins.scope
+			end
+			if type(opts.pins.markers) == "table" then
+				M.project_markers = opts.pins.markers
+			end
+			if opts.pins.root ~= nil then
+				M.project_root = opts.pins.root
+			end
+		end
+
+		if M.pins_scope ~= "global" and M.pins_scope ~= "project" then
+			M.pins_scope = "global"
+		end
+		if M.pins_scope == "project" then
+			if type(M.project_markers) ~= "table" or #M.project_markers == 0 then
+				M.project_markers = { ".git" }
+			end
+			if M.project_root ~= nil and type(M.project_root) ~= "function" then
+				M.project_root = nil
+			end
+		end
+
 		if opts.keymaps ~= nil then
 			if opts.keymaps == false then
 				M.keymaps = false
@@ -174,12 +198,8 @@ return function(M, U)
 				end
 
 				-- refresh pinned bufnr when entering a pinned file
-				if type(M._path_for_buf) == "function" and type(M._pin_slot_for_path) == "function" then
-					local path = M._path_for_buf(buf)
-					local slot = path and M._pin_slot_for_path(path) or nil
-					if slot and M._pins[slot] then
-						M._pins[slot].bufnr = buf
-					end
+				if type(M._refresh_pin_bufnr) == "function" then
+					M._refresh_pin_bufnr(buf)
 				end
 
 				-- normal navigation: commit immediately
@@ -250,12 +270,8 @@ return function(M, U)
 			group = M._augroup,
 			callback = function(args)
 				-- keep pins even if the underlying buffer is wiped
-				if args and args.buf then
-					for _, pin in pairs(M._pins) do
-						if pin and pin.bufnr == args.buf then
-							pin.bufnr = nil
-						end
-					end
+				if args and args.buf and type(M._clear_pin_bufnr) == "function" then
+					M._clear_pin_bufnr(args.buf)
 				end
 				if type(M._prune) == "function" then
 					M._prune()
@@ -326,11 +342,13 @@ return function(M, U)
 			if type(M._prune) == "function" then
 				M._prune()
 			end
+			local root = type(M._project_root_for_buf) == "function" and M._project_root_for_buf(vim.api.nvim_get_current_buf())
+				or nil
 			local out = {}
 			for i, path in ipairs(M._list) do
 				if type(path) == "string" and path ~= "" then
 					local b = vim.fn.bufnr(path, false)
-					local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) or nil
+					local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path, root) or nil
 					local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
 					local here = (i == M._pos) and "  <==" or ""
 					if b and b > 0 and U.buf_valid(b) then
@@ -347,4 +365,3 @@ return function(M, U)
 		return M
 	end
 end
-

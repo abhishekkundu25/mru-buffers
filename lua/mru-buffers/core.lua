@@ -77,7 +77,7 @@ return function(M, U)
 	end
 
 	local function is_pinned_path(path)
-		return type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) ~= nil
+		return type(M._is_pinned_anywhere) == "function" and M._is_pinned_anywhere(path) == true
 	end
 
 	local function enforce_max()
@@ -312,4 +312,3 @@ return function(M, U)
 		vim.notify("MRU: no valid target", vim.log.levels.INFO)
 	end
 end
-

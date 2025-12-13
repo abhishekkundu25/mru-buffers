@@ -25,6 +25,7 @@ return function(M, U)
 			footer_buf = nil,
 			footer_win = nil,
 			origin_win = nil,
+			origin_root = nil,
 			items = nil,
 		}
 
@@ -106,7 +107,7 @@ return function(M, U)
 		return false
 	end
 
-	local function footer_action_for_row(items, row)
+	local function footer_action_for_row(items, row, root)
 		if type(items) ~= "table" or #items == 0 then
 			return "x: pin/unpin"
 		end
@@ -119,27 +120,27 @@ return function(M, U)
 			return "x: pin/unpin"
 		end
 
-		local slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(it.path) or nil
+		local slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(it.path, root) or nil
 		if slot then
 			return ("x: unpin [%d]"):format(slot)
 		end
 
-		local free = type(M._first_free_pin_slot) == "function" and M._first_free_pin_slot() or nil
+		local free = type(M._first_free_pin_slot) == "function" and M._first_free_pin_slot(root) or nil
 		if free then
 			return ("x: pin -> [%d]"):format(free)
 		end
 		return ("x: pin (no slots %d-%d)"):format(1, M.pin_slots)
 	end
 
-	local function footer_bulk_pin_hint()
-		local free = type(M._first_free_pin_slot) == "function" and M._first_free_pin_slot() or nil
+	local function footer_bulk_pin_hint(root)
+		local free = type(M._first_free_pin_slot) == "function" and M._first_free_pin_slot(root) or nil
 		if free then
 			return "X: pin top"
 		end
 		return "X: no slots"
 	end
 
-	local function update_menu_footer(footer_buf, footer_win, list_win, items)
+	local function update_menu_footer(footer_buf, footer_win, list_win, items, root)
 		if not (footer_buf and vim.api.nvim_buf_is_valid(footer_buf)) then
 			return
 		end
@@ -151,7 +152,7 @@ return function(M, U)
 		end
 
 		local row = vim.api.nvim_win_get_cursor(list_win)[1]
-		local x_action = footer_action_for_row(items, row)
+		local x_action = footer_action_for_row(items, row, root)
 
 		local fancy = M.ui and M.ui.fancy == true
 		local sep = fancy and "  •  " or "   "
@@ -176,14 +177,14 @@ return function(M, U)
 
 		local parts = {
 			x_action,
-			footer_bulk_pin_hint(),
+			footer_bulk_pin_hint(root),
 			"<CR>: open",
 			"r: refresh",
 			cycle_hint(),
 			"q/<Esc>: close",
 		}
 		if not fancy then
-			parts = { x_action, footer_bulk_pin_hint(), "q/<Esc>: close" }
+			parts = { x_action, footer_bulk_pin_hint(root), "q/<Esc>: close" }
 		end
 
 		local footer = table.concat(parts, sep)
@@ -212,10 +213,10 @@ return function(M, U)
 			if type(path) == "string" and path ~= "" then
 				local b = vim.fn.bufnr(path, false)
 				local is_real = b and b > 0 and U.buf_valid(b) and type(M._buf_real) == "function" and M._buf_real(b)
-				local pinned = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) ~= nil
+				local pinned_any = type(M._is_pinned_anywhere) == "function" and M._is_pinned_anywhere(path) == true
 				if is_real then
 					table.insert(items, { path = path, bufnr = b })
-				elseif pinned then
+				elseif pinned_any then
 					table.insert(items, { path = path, bufnr = nil })
 				end
 			end
@@ -223,13 +224,13 @@ return function(M, U)
 		return items
 	end
 
-	local function render_menu(list_buf, list_win, items)
+	local function render_menu(list_buf, list_win, items, root)
 		local fancy = M.ui and M.ui.fancy == true
 
 		if not fancy then
 			local lines = {}
 			for i, it in ipairs(items) do
-				local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(it.path) or nil
+				local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(it.path, root) or nil
 				local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
 				local disp = vim.fn.fnamemodify(it.path, ":~:.")
 				if it.bufnr and vim.bo[it.bufnr].modified then
@@ -258,7 +259,7 @@ return function(M, U)
 		local lines = {}
 		local meta = {}
 		for i, it in ipairs(items) do
-			local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(it.path) or nil
+			local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(it.path, root) or nil
 			local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
 			local icon, icon_hl = devicon_for(it.path)
 			local icon_part = icon and (icon .. " ") or ""
@@ -356,6 +357,7 @@ return function(M, U)
 		M._menu.footer_buf = nil
 		M._menu.footer_win = nil
 		M._menu.origin_win = nil
+		M._menu.origin_root = nil
 		M._menu.items = nil
 	end
 
@@ -369,13 +371,14 @@ return function(M, U)
 
 		local row = vim.api.nvim_win_get_cursor(M._menu.list_win)[1]
 		local fresh = mru_items()
+		local root = M._menu.origin_root
 
-		render_menu(M._menu.list_buf, M._menu.list_win, fresh)
+		render_menu(M._menu.list_buf, M._menu.list_win, fresh, root)
 		local max_row = math.max(1, math.min(row, #fresh))
 		pcall(vim.api.nvim_win_set_cursor, M._menu.list_win, { max_row, 0 })
 
 		if M._menu.footer_buf and M._menu.footer_win and vim.api.nvim_win_is_valid(M._menu.footer_win) then
-			update_menu_footer(M._menu.footer_buf, M._menu.footer_win, M._menu.list_win, M._menu.items or fresh)
+			update_menu_footer(M._menu.footer_buf, M._menu.footer_win, M._menu.list_win, M._menu.items or fresh, root)
 		end
 	end
 
@@ -388,6 +391,7 @@ return function(M, U)
 		local origin_buf = vim.api.nvim_get_current_buf()
 		local origin_path = type(M._path_for_buf) == "function" and M._path_for_buf(origin_buf) or nil
 		local origin_win = vim.api.nvim_get_current_win()
+		local origin_root = type(M._project_root_for_buf) == "function" and M._project_root_for_buf(origin_buf) or nil
 
 		local items = mru_items()
 		if #items == 0 then
@@ -501,8 +505,9 @@ return function(M, U)
 		M._menu.footer_buf = footer_buf
 		M._menu.footer_win = footer_win
 		M._menu.origin_win = origin_win
+		M._menu.origin_root = origin_root
 
-		render_menu(list_buf, list_win, items)
+		render_menu(list_buf, list_win, items, origin_root)
 
 		local target_line = 1
 		if origin_path then
@@ -516,7 +521,7 @@ return function(M, U)
 		vim.api.nvim_win_set_cursor(list_win, { target_line, 0 })
 
 		if footer_enabled and footer_buf and footer_win then
-			update_menu_footer(footer_buf, footer_win, list_win, M._menu.items or items)
+			update_menu_footer(footer_buf, footer_win, list_win, M._menu.items or items, origin_root)
 		end
 
 		vim.api.nvim_create_autocmd("CursorMoved", {
@@ -527,7 +532,7 @@ return function(M, U)
 					return
 				end
 				if M._menu.footer_buf and M._menu.footer_win and vim.api.nvim_win_is_valid(M._menu.footer_win) then
-					update_menu_footer(M._menu.footer_buf, M._menu.footer_win, M._menu.list_win, M._menu.items or items)
+					update_menu_footer(M._menu.footer_buf, M._menu.footer_win, M._menu.list_win, M._menu.items or items, origin_root)
 				end
 			end,
 		})
@@ -597,17 +602,26 @@ return function(M, U)
 				if not it then
 					return
 				end
-				local slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(it.path) or nil
+				local slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(it.path, origin_root) or nil
 				if slot then
-					M.unpin(slot)
+					if type(M._pins_table_for_root) == "function" then
+						local pins = M._pins_table_for_root(origin_root)
+						pins[slot] = nil
+					end
+					if type(M._prune) == "function" then
+						M._prune()
+					end
+					if type(M._save_pins) == "function" then
+						M._save_pins()
+					end
 				else
-					local free = type(M._first_free_pin_slot) == "function" and M._first_free_pin_slot() or nil
+					local free = type(M._first_free_pin_slot) == "function" and M._first_free_pin_slot(origin_root) or nil
 					if not free then
 						vim.notify(("MRU: no free pin slots (1-%d)"):format(M.pin_slots), vim.log.levels.WARN)
 						return
 					end
 					if type(M._pin_path) == "function" then
-						M._pin_path(it.path, free, it.bufnr)
+						M._pin_path(it.path, free, it.bufnr, origin_root)
 					end
 					if type(M._save_pins) == "function" then
 						M._save_pins()
@@ -616,11 +630,11 @@ return function(M, U)
 				end
 
 				local refreshed = mru_items()
-				render_menu(list_buf, list_win, refreshed)
+				render_menu(list_buf, list_win, refreshed, origin_root)
 				local new_row = math.min(row, #refreshed)
 				vim.api.nvim_win_set_cursor(0, { math.max(1, new_row), 0 })
 				if footer_enabled and footer_buf and footer_win then
-					update_menu_footer(footer_buf, footer_win, list_win, M._menu.items or refreshed)
+					update_menu_footer(footer_buf, footer_win, list_win, M._menu.items or refreshed, origin_root)
 				end
 			end),
 			{ buffer = list_buf, silent = true, desc = "Pin/unpin selected" }
@@ -647,12 +661,12 @@ return function(M, U)
 					if not it or not it.path then
 						break
 					end
-					if not M._pin_slot_for_path(it.path) then
-						local free = M._first_free_pin_slot()
+					if not M._pin_slot_for_path(it.path, origin_root) then
+						local free = M._first_free_pin_slot(origin_root)
 						if not free then
 							break
 						end
-						M._pin_path(it.path, free, it.bufnr)
+						M._pin_path(it.path, free, it.bufnr, origin_root)
 						pinned = pinned + 1
 					end
 				end
@@ -662,11 +676,11 @@ return function(M, U)
 				end
 
 				local refreshed = mru_items()
-				render_menu(list_buf, list_win, refreshed)
+				render_menu(list_buf, list_win, refreshed, origin_root)
 				local new_row = math.min(row, #refreshed)
 				vim.api.nvim_win_set_cursor(0, { math.max(1, new_row), 0 })
 				if footer_enabled and footer_buf and footer_win then
-					update_menu_footer(footer_buf, footer_win, list_win, M._menu.items or refreshed)
+					update_menu_footer(footer_buf, footer_win, list_win, M._menu.items or refreshed, origin_root)
 				end
 			end),
 			{ buffer = list_buf, silent = true, desc = "Pin top MRU into free slots" }
@@ -674,9 +688,9 @@ return function(M, U)
 
 		vim.keymap.set("n", "r", function()
 			local fresh = mru_items()
-			render_menu(list_buf, list_win, fresh)
+			render_menu(list_buf, list_win, fresh, origin_root)
 			if footer_enabled and footer_buf and footer_win then
-				update_menu_footer(footer_buf, footer_win, list_win, M._menu.items or fresh)
+				update_menu_footer(footer_buf, footer_win, list_win, M._menu.items or fresh, origin_root)
 			end
 		end, { buffer = list_buf, silent = true, desc = "Refresh MRU menu" })
 	end

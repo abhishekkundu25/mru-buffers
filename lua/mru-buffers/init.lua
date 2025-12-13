@@ -44,7 +44,16 @@ M._ui_origin_pos = nil
 
 -- Pin slots (1..pin_slots)
 M.pin_slots = 9
-M._pins = {} -- slot -> { path = string, bufnr = number|nil }
+
+-- Pin scope:
+-- - "global": one set of pins shared everywhere (default)
+-- - "project": separate pin sets per detected project root
+M.pins_scope = "global"
+M.project_markers = { ".git" }
+M.project_root = nil -- optional function(bufnr) -> string
+
+M._pins_global = {} -- slot -> { path = string, bufnr = number|nil }
+M._pins_projects = {} -- root -> (slot -> { path = string, bufnr = number|nil })
 
 -- Pin persistence (opt-in)
 M.persist_pins = false
