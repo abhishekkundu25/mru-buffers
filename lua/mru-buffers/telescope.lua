@@ -189,6 +189,12 @@ return function(M, U)
 			local row = picker.get_selection_row and picker:get_selection_row() or nil
 			picker:refresh(make_finder(), { reset_prompt = false })
 
+			-- Immediately restore the previous row to avoid visible jumps while the
+			-- refreshed results are settling, then (below) refine by path.
+			if row ~= nil and picker.set_selection then
+				pcall(picker.set_selection, picker, row)
+			end
+
 			vim.defer_fn(function()
 				local p = action_state.get_current_picker(prompt_bufnr) or picker
 				if not p or p:is_done() then
@@ -257,7 +263,7 @@ return function(M, U)
 
 					local function selected_path()
 						local e = action_state.get_selected_entry()
-						return e and e.path or nil
+						return e and e.value and e.value.path or nil
 					end
 
 					actions.select_default:replace(function()
@@ -283,7 +289,22 @@ return function(M, U)
 					local function close_action()
 						local item = selected()
 						local path = item and item.path or selected_path()
+
+						-- `nvim_buf_delete` can behave inconsistently when invoked from a
+						-- floating prompt window; perform the delete from the picker
+						-- origin window, then restore focus back to the prompt.
+						local picker = action_state.get_current_picker(prompt_bufnr)
+						local origin_win = picker and picker.original_win_id or nil
+						local prompt_win = picker and picker.prompt_win or nil
+
+						if origin_win and vim.api.nvim_win_is_valid(origin_win) then
+							pcall(vim.api.nvim_set_current_win, origin_win)
+						end
 						local ok_close, reason = close_item(item)
+						if prompt_win and vim.api.nvim_win_is_valid(prompt_win) then
+							pcall(vim.api.nvim_set_current_win, prompt_win)
+						end
+
 						if not ok_close then
 							if reason == "modified" then
 								vim.notify("MRU: buffer has unsaved changes", vim.log.levels.WARN)
