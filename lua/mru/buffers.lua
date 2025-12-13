@@ -1,7 +1,7 @@
 local DEFAULT_KEYMAPS = {
 	menu = "<leader>he",
-	prev = "H",
-	next = "L",
+	prev = "[b",
+	next = "]b",
 	pins = {
 		set_prefix = "<leader>p", -- <leader>p1..9 to pin current buffer
 		jump_prefix = "<leader>", -- <leader>1..9 to jump to pinned buffer

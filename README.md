@@ -47,8 +47,8 @@ use({
 Call `require("mru-buffers").setup()` once (usually from your plugin manager). After that you get:
 
 - Default keymaps:
-  - `H`: cycle to previous entry in the MRU ring
-  - `L`: cycle to next entry
+  - `[b`: cycle to previous entry in the MRU ring
+  - `]b`: cycle to next entry
   - `<leader>he`: open the floating MRU menu
   - `<leader>p1`..`<leader>p9`: pin current buffer to slot 1..9
   - `<leader>1`..`<leader>9`: jump to pinned slot 1..9
@@ -144,8 +144,8 @@ require("mru-buffers").setup({
       persist_pins = true,
       keymaps = {
         menu = "<leader>m",
-        prev = "H",
-        next = "L",
+        prev = "[b",
+        next = "]b",
         pins = {
           set_prefix = "<leader>p", -- <leader>p1..9
           jump_prefix = "<leader>", -- <leader>1..9
