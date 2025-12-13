@@ -294,6 +294,14 @@ return function(M, U)
 			M.open_menu()
 		end, { force = true })
 
+		vim.api.nvim_create_user_command("MRUTelescope", function()
+			if type(M.telescope) ~= "function" then
+				vim.notify("MRU: telescope integration not available", vim.log.levels.WARN)
+				return
+			end
+			M.telescope()
+		end, { force = true })
+
 		vim.api.nvim_create_user_command("MRUPin", function(cmd)
 			M.pin(cmd.args)
 		end, {
@@ -347,4 +355,3 @@ return function(M, U)
 		return M
 	end
 end
-

@@ -53,6 +53,7 @@ Call `require("mru-buffers").setup()` once (usually from your plugin manager). A
   - `<leader>1`..`<leader>9`: jump to pinned slot 1..9
 - Commands:
   - `:MRUMenu`: toggle the menu
+  - `:MRUTelescope`: fuzzy-search the MRU ring with Telescope (optional)
   - `:MRUPin {1..9}`: pin current buffer to a slot
   - `:MRUUnpin {1..9}`: clear a pin slot
   - `:MRURing`: print the ring in `vim.notify`
@@ -133,6 +134,21 @@ require("mru-buffers").setup({
 })
 ```
 
+## Telescope integration (optional)
+
+If you have `nvim-telescope/telescope.nvim`, you can fuzzy-search the same MRU ring that `[b` / `]b` use:
+
+```lua
+vim.keymap.set("n", "<leader>fm", function()
+  require("mru-buffers").telescope()
+end, { desc = "MRU (Telescope)" })
+```
+
+Inside the Telescope picker:
+- `<CR>` opens the selection
+- `x` (normal) / `<C-x>` (insert) pin/unpin selection
+- `c` (normal) / `<C-c>` (insert) close selection (only if saved)
+
 ## Example (Fancy)
 
 ```lua
@@ -144,6 +160,8 @@ require("mru-buffers").setup({
     require("mru-buffers").setup({
       max = 80,
       persist_pins = true,
+      -- optional Telescope mapping (requires telescope.nvim)
+      -- vim.keymap.set("n", "<leader>fm", function() require("mru-buffers").telescope() end, { desc = "MRU (Telescope)" })
       keymaps = {
         menu = "<leader>m",
         prev = "[b",

@@ -88,6 +88,7 @@ local U = require("mru-buffers.util")
 require("mru-buffers.core")(M, U)
 require("mru-buffers.pins")(M, U)
 require("mru-buffers.ui")(M, U)
+require("mru-buffers.telescope")(M, U)
 require("mru-buffers.setup")(M, U)
 
 return M
