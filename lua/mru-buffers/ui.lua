@@ -131,6 +131,14 @@ return function(M, U)
 		return ("x: pin (no slots %d-%d)"):format(1, M.pin_slots)
 	end
 
+	local function footer_bulk_pin_hint()
+		local free = type(M._first_free_pin_slot) == "function" and M._first_free_pin_slot() or nil
+		if free then
+			return "X: pin top"
+		end
+		return "X: no slots"
+	end
+
 	local function update_menu_footer(footer_buf, footer_win, list_win, items)
 		if not (footer_buf and vim.api.nvim_buf_is_valid(footer_buf)) then
 			return
@@ -168,13 +176,14 @@ return function(M, U)
 
 		local parts = {
 			x_action,
+			footer_bulk_pin_hint(),
 			"<CR>: open",
 			"r: refresh",
 			cycle_hint(),
 			"q/<Esc>: close",
 		}
 		if not fancy then
-			parts = { x_action, "q/<Esc>: close" }
+			parts = { x_action, footer_bulk_pin_hint(), "q/<Esc>: close" }
 		end
 
 		local footer = table.concat(parts, sep)
@@ -617,6 +626,52 @@ return function(M, U)
 			{ buffer = list_buf, silent = true, desc = "Pin/unpin selected" }
 		)
 
+		vim.keymap.set(
+			"n",
+			"X",
+			with_items(function(fresh)
+				if type(M._pin_slot_for_path) ~= "function" then
+					return
+				end
+				if type(M._first_free_pin_slot) ~= "function" then
+					return
+				end
+				if type(M._pin_path) ~= "function" then
+					return
+				end
+
+				local row = vim.api.nvim_win_get_cursor(0)[1]
+
+				local pinned = 0
+				for _, it in ipairs(fresh) do
+					if not it or not it.path then
+						break
+					end
+					if not M._pin_slot_for_path(it.path) then
+						local free = M._first_free_pin_slot()
+						if not free then
+							break
+						end
+						M._pin_path(it.path, free, it.bufnr)
+						pinned = pinned + 1
+					end
+				end
+
+				if pinned > 0 and type(M._save_pins) == "function" then
+					M._save_pins()
+				end
+
+				local refreshed = mru_items()
+				render_menu(list_buf, list_win, refreshed)
+				local new_row = math.min(row, #refreshed)
+				vim.api.nvim_win_set_cursor(0, { math.max(1, new_row), 0 })
+				if footer_enabled and footer_buf and footer_win then
+					update_menu_footer(footer_buf, footer_win, list_win, M._menu.items or refreshed)
+				end
+			end),
+			{ buffer = list_buf, silent = true, desc = "Pin top MRU into free slots" }
+		)
+
 		vim.keymap.set("n", "r", function()
 			local fresh = mru_items()
 			render_menu(list_buf, list_win, fresh)
@@ -626,4 +681,3 @@ return function(M, U)
 		end, { buffer = list_buf, silent = true, desc = "Refresh MRU menu" })
 	end
 end
-
