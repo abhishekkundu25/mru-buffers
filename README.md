@@ -147,6 +147,7 @@ end, { desc = "MRU (Telescope)" })
 Inside the Telescope picker:
 - `<CR>` opens the selection
 - `x` (normal) / `<C-x>` (insert) pin/unpin selection
+- `X` (normal) pin from the top of the MRU list into free slots (1..9)
 - `c` (normal) / `<C-c>` (insert) close selection (only if saved)
 
 ## Example (Fancy)
