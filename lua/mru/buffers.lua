@@ -1101,11 +1101,36 @@ local function update_menu_footer(buf, win, items)
 
 	local fancy = M.ui and M.ui.fancy == true
 	local sep = fancy and "  •  " or "   "
+
+	local function cycle_hint()
+		if type(M.keymaps) ~= "table" then
+			return "cycle: prev/next"
+		end
+		local prev = M.keymaps.prev
+		local next = M.keymaps.next
+		if prev and prev ~= "" then
+			prev = vim.fn.keytrans(prev)
+		end
+		if next and next ~= "" then
+			next = vim.fn.keytrans(next)
+		end
+		if prev and prev ~= "" and next and next ~= "" then
+			return string.format("%s/%s: cycle", prev, next)
+		end
+		if prev and prev ~= "" then
+			return string.format("%s: prev", prev)
+		end
+		if next and next ~= "" then
+			return string.format("%s: next", next)
+		end
+		return "cycle: prev/next"
+	end
+
 	local parts = {
 		x_action,
 		"<CR>: open",
 		"r: refresh",
-		"H/L: cycle",
+		cycle_hint(),
 		"q/<Esc>: close",
 	}
 	if not fancy then
