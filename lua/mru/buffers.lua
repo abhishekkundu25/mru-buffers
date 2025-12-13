@@ -887,6 +887,24 @@ function M.setup(opts)
 		})
 	end
 
+	-- Keep the menu footer/wrapping correct on resize.
+	vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
+		group = M._augroup,
+		callback = function()
+			if not (M._menu.win and vim.api.nvim_win_is_valid(M._menu.win)) then
+				return
+			end
+			if not (M._menu.buf and vim.api.nvim_buf_is_valid(M._menu.buf)) then
+				return
+			end
+			local row = vim.api.nvim_win_get_cursor(M._menu.win)[1]
+			local fresh = mru_items()
+			render_menu(M._menu.buf, fresh)
+			local max_row = math.max(1, math.min(row, #fresh))
+			pcall(vim.api.nvim_win_set_cursor, M._menu.win, { max_row, 0 })
+		end,
+	})
+
 	vim.api.nvim_create_user_command("MRUMenu", function()
 		M.open_menu()
 	end, { force = true })
@@ -1004,6 +1022,41 @@ local function devicon_for(path)
 	return icon, hl
 end
 
+local function set_menu_wrapping(win, enable)
+	if not (win and vim.api.nvim_win_is_valid(win)) then
+		return
+	end
+	if enable then
+		vim.wo[win].wrap = true
+		vim.wo[win].linebreak = true
+		vim.wo[win].breakindent = true
+		vim.wo[win].breakindentopt = "shift:2,min:10"
+		vim.wo[win].showbreak = string.rep(" ", 10)
+	else
+		vim.wo[win].wrap = false
+		vim.wo[win].linebreak = false
+		vim.wo[win].breakindent = false
+		vim.wo[win].breakindentopt = ""
+		vim.wo[win].showbreak = ""
+	end
+end
+
+local function should_wrap_lines(win, lines)
+	if not (win and vim.api.nvim_win_is_valid(win)) then
+		return false
+	end
+	local width = vim.api.nvim_win_get_width(win)
+	if not width or width <= 0 then
+		return false
+	end
+	for _, line in ipairs(lines) do
+		if vim.fn.strdisplaywidth(line) > width then
+			return true
+		end
+	end
+	return false
+end
+
 local function mru_items()
 	prune()
 	local items = {}
@@ -1043,6 +1096,11 @@ local function render_menu(buf, items)
 		vim.bo[buf].modifiable = true
 		vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 		vim.bo[buf].modifiable = false
+
+		local winid = vim.fn.bufwinid(buf)
+		if winid and winid ~= -1 then
+			set_menu_wrapping(winid, should_wrap_lines(winid, lines))
+		end
 		return
 	end
 
@@ -1097,6 +1155,10 @@ local function render_menu(buf, items)
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 	vim.bo[buf].modifiable = false
+
+	if winid and winid ~= -1 then
+		set_menu_wrapping(winid, should_wrap_lines(winid, lines))
+	end
 
 	vim.api.nvim_buf_clear_namespace(buf, M._ui_ns, 0, -1)
 	for i = 1, #items do
@@ -1173,8 +1235,6 @@ function M.open_menu()
 	vim.bo[buf].filetype = "mru-ring"
 	vim.bo[buf].modifiable = false
 
-	render_menu(buf, items)
-
 	local cols = vim.o.columns
 	local lines = vim.o.lines
 
@@ -1211,6 +1271,8 @@ function M.open_menu()
 
 	M._menu.buf, M._menu.win = buf, win
 	M._menu.origin_win = origin_win
+
+	render_menu(buf, items)
 
 	-- place cursor on current buffer if present, else first line
 	local target_line = 1
