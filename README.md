@@ -19,8 +19,9 @@ Harpoon-inspired MRU switching for Neovim that keeps a unique ring of recently u
 
 ```lua
 {
-  "github-user/mru-buffers", -- replace github-user with your handle once published
+  "abhishekkundu25/mru-buffers",
   event = "VeryLazy",
+  version = "0.8",
   config = function()
     require("mru-buffers").setup({
       -- optional configuration
@@ -33,7 +34,7 @@ Harpoon-inspired MRU switching for Neovim that keeps a unique ring of recently u
 
 ```lua
 use({
-  "github-user/mru-buffers",
+  "abhishekkundu25/mru-buffers",
   config = function()
     require("mru-buffers").setup()
   end,
@@ -59,7 +60,7 @@ Call `require("mru-buffers").setup()` once (usually from your plugin manager). A
 
 ### Preview mode
 
-Cycling uses preview semantics by default: buffers that you jump to via `H`/`L` do not get committed to the front of the MRU list until you actually touch them (insert, move, edit). Internal cursor events and repeated cycle presses are ignored so the ring stays stable while you browse around.
+Cycling uses preview semantics by default: buffers that you jump to via your cycle keys (defaults: `[b` / `]b`) do not get committed to the front of the MRU list until you actually touch them (insert, move, edit). Internal cursor events and repeated cycle presses are ignored so the ring stays stable while you browse around.
 
 ### Pins
 
