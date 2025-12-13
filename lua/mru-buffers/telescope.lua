@@ -111,9 +111,18 @@ return function(M, U)
 
 		local pickers = require("telescope.pickers")
 		local finders = require("telescope.finders")
+		local entry_display = require("telescope.pickers.entry_display")
 		local conf = require("telescope.config").values
 		local actions = require("telescope.actions")
 		local action_state = require("telescope.actions.state")
+
+		local displayer = entry_display.create({
+			separator = " ",
+			items = {
+				{ width = 4 }, -- pin tag
+				{ remaining = true }, -- path (+ suffix)
+			},
+		})
 
 		local function make_finder()
 			local results = collect_items()
@@ -125,20 +134,30 @@ return function(M, U)
 					local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) or nil
 					local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
 					local disp = vim.fn.fnamemodify(path, ":~:.")
-					local suffix = ""
-					if bufnr and U.buf_valid(bufnr) and vim.bo[bufnr].modified then
-						suffix = " ●"
-					elseif not bufnr then
-						suffix = "  [closed]"
-					end
-					local display = string.format("%s  %s%s", pin_tag, disp, suffix)
+					local is_modified = bufnr and U.buf_valid(bufnr) and vim.bo[bufnr].modified
+					local is_closed = not bufnr
+					local suffix = is_modified and " ●" or (is_closed and "  [closed]" or "")
 
 					return {
 						value = item,
-						display = display,
-						ordinal = disp,
+						display = function(entry)
+							local left_hl = entry.pin_slot and "TelescopeResultsIdentifier" or "TelescopeResultsNumber"
+							local right_hl = entry.is_closed and "TelescopeResultsComment"
+								or (entry.is_modified and "TelescopeResultsSpecialComment" or nil)
+							return displayer({
+								{ entry.pin_tag, left_hl },
+								{ entry.disp .. entry.suffix, right_hl },
+							})
+						end,
+						ordinal = disp .. " " .. pin_tag,
 						path = path,
 						bufnr = bufnr,
+						disp = disp,
+						suffix = suffix,
+						pin_slot = pin_slot,
+						pin_tag = pin_tag,
+						is_closed = is_closed,
+						is_modified = is_modified,
 					}
 				end,
 			})
@@ -146,20 +165,26 @@ return function(M, U)
 
 		local function refresh_picker(prompt_bufnr)
 			local picker = action_state.get_current_picker(prompt_bufnr)
+			local row = picker and picker.get_selection_row and picker:get_selection_row() or nil
 			picker:refresh(make_finder(), { reset_prompt = false })
+			if row and picker and picker.set_selection then
+				vim.schedule(function()
+					pcall(picker.set_selection, picker, row)
+				end)
+			end
 		end
 
 		pickers
 			.new(opts, {
-					prompt_title = "MRU Buffers",
-					finder = make_finder(),
-					sorter = conf.generic_sorter(opts),
-					-- Use Telescope's configured file previewer for broad compatibility
-					-- across Telescope versions (avoids depending on internal utils).
-					previewer = conf.file_previewer(opts),
-					attach_mappings = function(prompt_bufnr, map)
-						local function selected()
-							local e = action_state.get_selected_entry()
+				prompt_title = "MRU Buffers",
+				finder = make_finder(),
+				sorter = conf.generic_sorter(opts),
+				-- Use Telescope's configured file previewer for broad compatibility
+				-- across Telescope versions (avoids depending on internal utils).
+				previewer = conf.file_previewer(opts),
+				attach_mappings = function(prompt_bufnr, map)
+					local function selected()
+						local e = action_state.get_selected_entry()
 						return e and e.value or nil
 					end
 
