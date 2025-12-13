@@ -291,18 +291,17 @@ return function(M, U)
 						local path = item and item.path or selected_path()
 
 						-- `nvim_buf_delete` can behave inconsistently when invoked from a
-						-- floating prompt window; perform the delete from the picker
-						-- origin window, then restore focus back to the prompt.
+						-- floating prompt window. Run the delete in the picker's origin
+						-- window context without changing focus (so Telescope stays open).
 						local picker = action_state.get_current_picker(prompt_bufnr)
 						local origin_win = picker and picker.original_win_id or nil
-						local prompt_win = picker and picker.prompt_win or nil
-
+						local ok_close, reason
 						if origin_win and vim.api.nvim_win_is_valid(origin_win) then
-							pcall(vim.api.nvim_set_current_win, origin_win)
-						end
-						local ok_close, reason = close_item(item)
-						if prompt_win and vim.api.nvim_win_is_valid(prompt_win) then
-							pcall(vim.api.nvim_set_current_win, prompt_win)
+							vim.api.nvim_win_call(origin_win, function()
+								ok_close, reason = close_item(item)
+							end)
+						else
+							ok_close, reason = close_item(item)
 						end
 
 						if not ok_close then
