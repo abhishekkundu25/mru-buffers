@@ -170,8 +170,12 @@ require("mru-buffers").setup({
 
 ## Development
 
-- `lua/mru/buffers.lua` contains the logic and UI helpers.
-- `lua/mru-buffers/init.lua` exposes the module for `require("mru-buffers")`.
+- `lua/mru-buffers/init.lua` exposes `require("mru-buffers")` and assembles modules.
+- `lua/mru-buffers/core.lua` MRU ring + cycling logic.
+- `lua/mru-buffers/pins.lua` pins + persistence.
+- `lua/mru-buffers/ui.lua` floating menu UI.
+- `lua/mru-buffers/setup.lua` `setup()`, autocmds, user commands, keymaps.
+- `lua/mru/buffers.lua` is a compatibility wrapper for `require("mru.buffers")`.
 
 Contributions and bug reports are welcome once the repository is published.
 
