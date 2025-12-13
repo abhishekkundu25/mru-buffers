@@ -723,6 +723,9 @@ function M.setup(opts)
 	if opts.ignore then
 		M.ignore = vim.tbl_deep_extend("force", M.ignore, opts.ignore)
 	end
+	if opts.ui then
+		M.ui = vim.tbl_deep_extend("force", M.ui or {}, opts.ui)
+	end
 	update_cycle_keys(opts.cycle_keys)
 
 	if opts.persist_pins ~= nil then
@@ -947,17 +950,25 @@ M.ui = M.ui
 		width = 140, -- columns (clamped to screen)
 		height = 12, -- rows (clamped to screen)
 		border = "rounded",
-		title = "MRU Buffers",
+		title = "Recently used Buff",
+		-- UI styling (opt-in; classic behavior by default)
+		fancy = false,
+		show_icons = true, -- requires nvim-web-devicons
+		show_count_in_title = true,
+		show_footer = true,
+		modified_icon = " ●",
 	}
 
 M._menu = { buf = nil, win = nil }
-M._ui_ns = M._ui_ns or vim.api.nvim_create_namespace("MRUBuffersUI")
+M._ui_ns = M._ui_ns or nil
 M._ui_hl_ready = M._ui_hl_ready or false
 
 local function setup_ui_highlights()
 	if M._ui_hl_ready then
 		return
 	end
+
+	M._ui_ns = M._ui_ns or vim.api.nvim_create_namespace("MRUBuffersUI")
 
 	local function link(group, target)
 		vim.api.nvim_set_hl(0, group, { link = target, default = true })
@@ -979,6 +990,9 @@ local function setup_ui_highlights()
 end
 
 local function devicon_for(path)
+	if not (M.ui and M.ui.show_icons) then
+		return nil, nil
+	end
 	local ok, devicons = pcall(require, "nvim-web-devicons")
 	if not ok or not devicons then
 		return nil, nil
@@ -1006,6 +1020,33 @@ local function mru_items()
 end
 
 local function render_menu(buf, items)
+	local fancy = M.ui and M.ui.fancy == true
+
+	if not fancy then
+		local lines = {}
+		for i, it in ipairs(items) do
+			local pin_slot = pin_slot_for_path(it.path)
+			local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
+			local disp = vim.fn.fnamemodify(it.path, ":~:.")
+			if it.bufnr and vim.bo[it.bufnr].modified then
+				disp = disp .. "  [+]"
+			elseif not it.bufnr then
+				disp = disp .. "  [closed]"
+			end
+			lines[i] = string.format("%2d  %s  %s", i, pin_tag, disp)
+		end
+
+		lines[#lines + 1] = ""
+		lines[#lines + 1] = "x: pin/unpin   q/<Esc>: close"
+
+		vim.bo[buf].modifiable = true
+		vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+		vim.bo[buf].modifiable = false
+		return
+	end
+
+	setup_ui_highlights()
+
 	local lines = {}
 	local meta = {}
 	for i, it in ipairs(items) do
@@ -1017,7 +1058,7 @@ local function render_menu(buf, items)
 		local disp = vim.fn.fnamemodify(it.path, ":~:.")
 		local suffix = ""
 		if it.bufnr and vim.bo[it.bufnr].modified then
-			suffix = "  ●"
+			suffix = M.ui.modified_icon or " ●"
 		elseif not it.bufnr then
 			suffix = "  [closed]"
 		end
@@ -1034,8 +1075,10 @@ local function render_menu(buf, items)
 		}
 	end
 
-	lines[#lines + 1] = ""
-	lines[#lines + 1] = "x: pin/unpin  •  <CR>: open  •  r: refresh  •  H/L: cycle  •  q/<Esc>: close"
+	if M.ui.show_footer ~= false then
+		lines[#lines + 1] = ""
+		lines[#lines + 1] = "x: pin/unpin  •  <CR>: open  •  r: refresh  •  H/L: cycle  •  q/<Esc>: close"
+	end
 
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -1065,7 +1108,7 @@ local function render_menu(buf, items)
 		end
 		vim.api.nvim_buf_add_highlight(buf, M._ui_ns, name_hl, i - 1, m.name_col, -1)
 
-		if m.suffix == "  ●" then
+		if m.suffix == (M.ui.modified_icon or " ●") then
 			local start = #line - #m.suffix
 			vim.api.nvim_buf_add_highlight(buf, M._ui_ns, "MRUBuffersModified", i - 1, start, -1)
 		elseif m.suffix == "  [closed]" then
@@ -1074,9 +1117,11 @@ local function render_menu(buf, items)
 		end
 	end
 
-	local hint_row = #items + 2
-	if lines[hint_row] then
-		vim.api.nvim_buf_add_highlight(buf, M._ui_ns, "MRUBuffersHint", hint_row - 1, 0, -1)
+	if M.ui.show_footer ~= false then
+		local hint_row = #items + 2
+		if lines[hint_row] then
+			vim.api.nvim_buf_add_highlight(buf, M._ui_ns, "MRUBuffersHint", hint_row - 1, 0, -1)
+		end
 	end
 end
 
@@ -1096,8 +1141,6 @@ function M.open_menu()
 		close_menu()
 		return
 	end
-
-	setup_ui_highlights()
 
 	local origin_buf = vim.api.nvim_get_current_buf()
 	local origin_path = path_for_buf(origin_buf)
@@ -1124,7 +1167,10 @@ function M.open_menu()
 	local w = math.min(M.ui.width, math.max(30, cols - 4))
 	local h = math.min(M.ui.height, math.max(6, lines - 6))
 
-	local title = string.format(" %s (%d) ", M.ui.title or "MRU Buffers", #items)
+	local title = M.ui.title
+	if M.ui.fancy == true and M.ui.show_count_in_title ~= false then
+		title = string.format(" %s (%d) ", title or "MRU Buffers", #items)
+	end
 
 	local win = vim.api.nvim_open_win(buf, true, {
 		relative = "editor",
@@ -1136,7 +1182,6 @@ function M.open_menu()
 		border = M.ui.border,
 		title = title,
 		title_pos = "center",
-		noautocmd = true,
 	})
 
 	vim.wo[win].cursorline = true
@@ -1144,8 +1189,11 @@ function M.open_menu()
 	vim.wo[win].number = false
 	vim.wo[win].relativenumber = false
 	vim.wo[win].signcolumn = "no"
-	vim.wo[win].winhighlight =
-		"Normal:MRUBuffersNormal,FloatBorder:MRUBuffersBorder,FloatTitle:MRUBuffersTitle,CursorLine:MRUBuffersCursorLine"
+	if M.ui.fancy == true then
+		setup_ui_highlights()
+		vim.wo[win].winhighlight =
+			"Normal:MRUBuffersNormal,FloatBorder:MRUBuffersBorder,FloatTitle:MRUBuffersTitle,CursorLine:MRUBuffersCursorLine"
+	end
 
 	M._menu.buf, M._menu.win = buf, win
 	M._menu.origin_win = origin_win

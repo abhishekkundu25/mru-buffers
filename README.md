@@ -73,16 +73,33 @@ In the menu, press `x` to unpin the selected entry.
 
 `setup` accepts these keys (all optional):
 
-| Option | Type | Description |
-| --- | --- | --- |
-| `max` | integer | Maximum number of entries to keep (default `50`). |
-| `commit_on_touch` | boolean | If `false`, buffers are committed immediately instead of waiting for a touch event. |
-| `touch_events` | table | Autocommands that count as a "touch" (default `{ "CursorMoved", "InsertEnter", "TextChanged" }`). |
-| `ignore` | table | Extend the built-in ignore lists (`buftype`, `filetype`, `name_patterns`). Uses `vim.tbl_deep_extend`. |
-| `keymaps` | table/`false`/`true` | Provide your own default maps (`{ menu = "...", prev = "...", next = "..." }`). Set to `false` to skip installing keymaps; set to `true` to reset to defaults. |
-| `cycle_keys` | table | Extra keys that should be ignored while in preview mode. By default the plugin infers this from the configured `keymaps`. When `keymaps = false`, you should set this manually to match the mappings you define yourself. |
-| `persist_pins` | boolean | Persist pinned slots to disk and reload on startup (default `false`). |
-| `persist_file` | string | Override the persistence file path (default `stdpath("data") .. "/mru-buffers-pins.json"`). |
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `max` | integer | `50` | Maximum number of entries to keep. |
+| `commit_on_touch` | boolean | `true` | If `false`, buffers are committed immediately instead of waiting for a touch event. |
+| `touch_events` | table | `{ "CursorMoved", "InsertEnter", "TextChanged" }` | Autocommands that count as a "touch". |
+| `ignore` | table | (built-in) | Extend the built-in ignore lists (`buftype`, `filetype`, `name_patterns`). Uses `vim.tbl_deep_extend`. |
+| `keymaps` | table/`false`/`true` | (built-in) | Provide your own default maps (`{ menu, prev, next, pins = { set_prefix, jump_prefix } }`). Set to `false` to skip installing keymaps; set to `true` to reset to defaults. |
+| `cycle_keys` | table | (derived) | Extra keys that should be ignored while in preview mode. By default the plugin infers this from the configured `keymaps`. When `keymaps = false`, set this manually. |
+| `ui` | table | (built-in) | MRU menu UI options (see below). |
+| `persist_pins` | boolean | `false` | Persist pinned slots to disk and reload on startup. |
+| `persist_file` | string | `stdpath("data") .. "/mru-buffers-pins.json"` | Override the persistence file path. |
+
+### UI options (`ui`)
+
+Classic UI is the default. Enable the newer styling via `ui.fancy = true`.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `ui.width` | integer | `140` | Menu width (columns, clamped to screen). |
+| `ui.height` | integer | `12` | Menu height (rows, clamped to screen). |
+| `ui.border` | string | `"rounded"` | Floating window border style. |
+| `ui.title` | string | `"Recently used Buff"` | Window title. |
+| `ui.fancy` | boolean | `false` | Enable enhanced styling (highlights, icons, richer footer). |
+| `ui.show_icons` | boolean | `true` | Show devicons when `ui.fancy = true` (requires `nvim-web-devicons`). |
+| `ui.show_count_in_title` | boolean | `true` | Append item count to title when `ui.fancy = true`. |
+| `ui.show_footer` | boolean | `true` | Show the help footer when `ui.fancy = true`. |
+| `ui.modified_icon` | string | `" ●"` | Suffix for modified buffers when `ui.fancy = true`. |
 
 Example:
 
