@@ -153,7 +153,7 @@ return function(M, U)
 					local disp = vim.fn.fnamemodify(path, ":~:.")
 					local is_modified = bufnr and U.buf_valid(bufnr) and vim.bo[bufnr].modified
 					local is_closed = not bufnr
-					local suffix = is_modified and " ●" or (is_closed and "  [closed]" or "")
+					local suffix = is_modified and " [unsaved]" or (is_closed and "  [closed]" or "")
 
 					return {
 						value = item,
