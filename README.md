@@ -119,7 +119,55 @@ require("mru-buffers").setup({
   ignore = {
     filetype = { "startify" },
   },
+  ui = {
+    fancy = true,
+    border = "rounded",
+    title = "MRU",
+    show_icons = true, -- requires nvim-web-devicons
+    show_count_in_title = true,
+    show_footer = true,
+  },
+  persist_pins = true,
 })
+```
+
+## Example (Fancy)
+
+```lua
+{
+  "abhishekkundu25/mru-buffers",
+  event = "VeryLazy",
+  dependencies = { "nvim-tree/nvim-web-devicons" }, -- optional (icons)
+  config = function()
+    require("mru-buffers").setup({
+      max = 80,
+      persist_pins = true,
+      keymaps = {
+        menu = "<leader>m",
+        prev = "H",
+        next = "L",
+        pins = {
+          set_prefix = "<leader>p", -- <leader>p1..9
+          jump_prefix = "<leader>", -- <leader>1..9
+        },
+      },
+      ui = {
+        fancy = true,
+        width = 120,
+        height = 14,
+        border = "rounded",
+        title = "MRU Buffers",
+        show_icons = true,
+        show_count_in_title = true,
+        show_footer = true,
+        modified_icon = " ●",
+      },
+      ignore = {
+        filetype = { "TelescopePrompt", "TelescopeResults", "lazy", "mason" },
+      },
+    })
+  end,
+}
 ```
 
 ## Development

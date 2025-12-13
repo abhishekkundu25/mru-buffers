@@ -974,14 +974,15 @@ local function setup_ui_highlights()
 		vim.api.nvim_set_hl(0, group, { link = target, default = true })
 	end
 
-	link("MRUBuffersNormal", "NormalFloat")
+	-- Use Normal for better readability across themes.
+	link("MRUBuffersNormal", "Normal")
 	link("MRUBuffersBorder", "FloatBorder")
 	link("MRUBuffersTitle", "FloatTitle")
 	link("MRUBuffersCursorLine", "CursorLine")
 	link("MRUBuffersIndex", "LineNr")
 	link("MRUBuffersPin", "DiagnosticHint")
 	link("MRUBuffersPinnedName", "Directory")
-	link("MRUBuffersName", "NormalFloat")
+	link("MRUBuffersName", "Normal")
 	link("MRUBuffersModified", "DiagnosticWarn")
 	link("MRUBuffersClosed", "Comment")
 	link("MRUBuffersHint", "Comment")
@@ -1047,6 +1048,9 @@ local function render_menu(buf, items)
 
 	setup_ui_highlights()
 
+	local winid = vim.fn.bufwinid(buf)
+	local win_height = (winid and winid ~= -1) and vim.api.nvim_win_get_height(winid) or nil
+
 	local lines = {}
 	local meta = {}
 	for i, it in ipairs(items) do
@@ -1076,8 +1080,18 @@ local function render_menu(buf, items)
 	end
 
 	if M.ui.show_footer ~= false then
-		lines[#lines + 1] = ""
-		lines[#lines + 1] = "x: pin/unpin  •  <CR>: open  •  r: refresh  •  H/L: cycle  •  q/<Esc>: close"
+		local footer = "x: pin/unpin  •  <CR>: open  •  r: refresh  •  H/L: cycle  •  q/<Esc>: close"
+		if win_height and #lines + 2 <= win_height then
+			-- Place footer flush at the bottom of the window.
+			while #lines < win_height - 2 do
+				lines[#lines + 1] = ""
+			end
+			lines[#lines + 1] = ""
+			lines[#lines + 1] = footer
+		else
+			lines[#lines + 1] = ""
+			lines[#lines + 1] = footer
+		end
 	end
 
 	vim.bo[buf].modifiable = true
@@ -1118,8 +1132,8 @@ local function render_menu(buf, items)
 	end
 
 	if M.ui.show_footer ~= false then
-		local hint_row = #items + 2
-		if lines[hint_row] then
+		local hint_row = #lines
+		if lines[hint_row] and lines[hint_row] ~= "" then
 			vim.api.nvim_buf_add_highlight(buf, M._ui_ns, "MRUBuffersHint", hint_row - 1, 0, -1)
 		end
 	end
