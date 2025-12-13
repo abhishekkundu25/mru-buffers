@@ -112,8 +112,6 @@ return function(M, U)
 		local pickers = require("telescope.pickers")
 		local finders = require("telescope.finders")
 		local conf = require("telescope.config").values
-		local previewers = require("telescope.previewers")
-		local putils = require("telescope.previewers.utils")
 		local actions = require("telescope.actions")
 		local action_state = require("telescope.actions.state")
 
@@ -153,19 +151,15 @@ return function(M, U)
 
 		pickers
 			.new(opts, {
-				prompt_title = "MRU Buffers",
-				finder = make_finder(),
-				sorter = conf.generic_sorter(opts),
-				previewer = previewers.new_buffer_previewer({
-					define_preview = function(self, entry)
-						if entry and entry.path and entry.path ~= "" then
-							putils.buffer_previewer_maker(entry.path, self.state.bufnr, { bufname = self.state.bufname })
-						end
-					end,
-				}),
-				attach_mappings = function(prompt_bufnr, map)
-					local function selected()
-						local e = action_state.get_selected_entry()
+					prompt_title = "MRU Buffers",
+					finder = make_finder(),
+					sorter = conf.generic_sorter(opts),
+					-- Use Telescope's configured file previewer for broad compatibility
+					-- across Telescope versions (avoids depending on internal utils).
+					previewer = conf.file_previewer(opts),
+					attach_mappings = function(prompt_bufnr, map)
+						local function selected()
+							local e = action_state.get_selected_entry()
 						return e and e.value or nil
 					end
 
@@ -208,4 +202,3 @@ return function(M, U)
 			:find()
 	end
 end
-
