@@ -52,9 +52,14 @@ return function(M, U)
 		if vim.fs and vim.fs.find then
 			local ok, found = pcall(vim.fs.find, ".git", { path = dir, upward = true })
 			if ok and type(found) == "table" and #found > 0 and type(found[1]) == "string" then
-				root = normalize_root(vim.fn.fnamemodify(found[1], ":p:h"))
+				-- `vim.fs.find()` may return `.git/` with a trailing separator; strip it
+				-- so `:h` resolves to the worktree root instead of `.git`.
+					local marker = found[1]:gsub("[/\\]+$", "")
+					-- NOTE: Avoid `:p:h` here: `:p` on a directory like `.git` turns it
+					-- into `.git/`, and then `:h` resolves back to `.git`.
+					root = normalize_root(vim.fn.fnamemodify(marker, ":h"))
+				end
 			end
-		end
 
 		M._git_cache.dir_roots[dir] = root or false
 		return root
@@ -237,4 +242,3 @@ return function(M, U)
 	M._git_stats_for_paths = stats_for_paths
 	M._git_format_cells = format_cells
 end
-

@@ -136,25 +136,35 @@ return function(M, U)
 		local actions = require("telescope.actions")
 		local action_state = require("telescope.actions.state")
 
-		local git_cells = (M.git and M.git.column) or {}
+		local show_git = M.git
+			and M.git.enabled == true
+			and M.git.show_in_telescope ~= false
+			and type(M._git_stats_for_paths) == "function"
+			and type(M._git_format_cells) == "function"
+
+		local git_cells = (show_git and M.git and M.git.column) or {}
 		local cell_w = tonumber(git_cells.cell_width) or 5
 		local cell_sep = git_cells.sep or " "
 
+		local display_items = {
+			{ width = 4 }, -- pin tag
+		}
+		if show_git then
+			display_items[#display_items + 1] = { width = cell_w } -- +N
+			display_items[#display_items + 1] = { width = cell_w } -- -N
+		end
+		display_items[#display_items + 1] = { width = 2 } -- icon
+		display_items[#display_items + 1] = { remaining = true } -- path (+ suffix)
+
 		local displayer = entry_display.create({
 			separator = " ",
-			items = {
-				{ width = 4 }, -- pin tag
-				{ width = cell_w }, -- +N
-				{ width = cell_w }, -- -N
-				{ width = 2 }, -- icon
-				{ remaining = true }, -- path (+ suffix)
-			},
+			items = display_items,
 		})
 
 		local function make_finder()
 			local results = collect_items()
 			local git_map = nil
-			if M.git and M.git.enabled == true and M.git.show_in_telescope ~= false and type(M._git_stats_for_paths) == "function" then
+			if show_git then
 				local paths = {}
 				for _, it in ipairs(results) do
 					if it and it.path then
@@ -179,14 +189,23 @@ return function(M, U)
 					local icon, icon_hl = tutils.get_devicons(path, opts.disable_devicons)
 					icon = (type(icon) == "string" and icon ~= "") and icon or " "
 
-					local add_cell, del_cell = string.rep(" ", cell_w), string.rep(" ", cell_w)
-					local abs = U.normalize_path(path)
-					local st = abs and git_map and git_map[abs] or nil
-					if st and type(M._git_format_cells) == "function" then
-						local combined, meta = M._git_format_cells(st.add or 0, st.del or 0)
-						if combined and meta then
-							add_cell = combined:sub(1, meta.cell_w or cell_w)
-							del_cell = combined:sub((meta.cell_w or cell_w) + #cell_sep + 1, (meta.cell_w or cell_w) * 2 + #cell_sep)
+					local add_cell, del_cell, add_hl, del_hl = nil, nil, nil, nil
+					if show_git then
+						add_cell, del_cell = string.rep(" ", cell_w), string.rep(" ", cell_w)
+						local abs = U.normalize_path(path)
+						local st = abs and git_map and git_map[abs] or nil
+						if st and type(M._git_format_cells) == "function" then
+							local combined, meta = M._git_format_cells(st.add or 0, st.del or 0)
+							if combined and meta then
+								add_cell = combined:sub(1, meta.cell_w or cell_w)
+								del_cell = combined:sub((meta.cell_w or cell_w) + #cell_sep + 1, (meta.cell_w or cell_w) * 2 + #cell_sep)
+								if (st.add or 0) > 0 then
+									add_hl = "MRUBuffersTelescopeGitAdd"
+								end
+								if (st.del or 0) > 0 then
+									del_hl = "MRUBuffersTelescopeGitDel"
+								end
+							end
 						end
 					end
 
@@ -196,13 +215,16 @@ return function(M, U)
 							local left_hl = entry.pin_slot and "MRUBuffersTelescopePin" or "TelescopeResultsNumber"
 							local right_hl = entry.is_closed and "MRUBuffersTelescopeClosed"
 								or (entry.is_modified and "MRUBuffersTelescopeModified" or "MRUBuffersTelescopePath")
-							return displayer({
+							local parts = {
 								{ entry.pin_tag, left_hl },
-								{ entry.add_cell, "MRUBuffersTelescopeGitAdd" },
-								{ entry.del_cell, "MRUBuffersTelescopeGitDel" },
-								{ entry.icon, entry.icon_hl },
-								{ entry.disp .. entry.suffix, right_hl },
-							})
+							}
+							if show_git then
+								parts[#parts + 1] = { entry.add_cell or string.rep(" ", cell_w), entry.add_hl }
+								parts[#parts + 1] = { entry.del_cell or string.rep(" ", cell_w), entry.del_hl }
+							end
+							parts[#parts + 1] = { entry.icon, entry.icon_hl }
+							parts[#parts + 1] = { entry.disp .. entry.suffix, right_hl }
+							return displayer(parts)
 						end,
 						ordinal = table.concat({ disp, path, pin_tag }, " "),
 						path = path,
@@ -215,6 +237,8 @@ return function(M, U)
 						icon_hl = icon_hl,
 						add_cell = add_cell,
 						del_cell = del_cell,
+						add_hl = add_hl,
+						del_hl = del_hl,
 						is_closed = is_closed,
 						is_modified = is_modified,
 					}
