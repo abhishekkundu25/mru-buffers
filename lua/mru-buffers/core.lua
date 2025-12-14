@@ -124,6 +124,10 @@ return function(M, U)
 					keep = true
 				elseif is_pinned_path(path) then
 					keep = true
+				elseif M.keep_closed == true then
+					-- Keep closed (non-pinned) entries in the MRU list so the ring
+					-- acts like a file history; still capped by `max`.
+					keep = true
 				end
 
 				if keep then
@@ -312,4 +316,3 @@ return function(M, U)
 		vim.notify("MRU: no valid target", vim.log.levels.INFO)
 	end
 end
-

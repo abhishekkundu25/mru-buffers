@@ -247,7 +247,7 @@ return function(M, U)
 				local pinned = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) ~= nil
 				if is_real then
 					table.insert(items, { path = path, bufnr = b })
-				elseif pinned then
+				elseif pinned or M.keep_closed == true then
 					table.insert(items, { path = path, bufnr = nil })
 				end
 			end

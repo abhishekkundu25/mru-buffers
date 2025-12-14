@@ -98,6 +98,9 @@ return function(M, U)
 		end
 
 		M.max = opts.max or M.max
+		if opts.keep_closed ~= nil then
+			M.keep_closed = opts.keep_closed == true
+		end
 		M.commit_on_touch = (opts.commit_on_touch ~= false)
 		M.touch_events = opts.touch_events or M.touch_events
 		if opts.ignore then

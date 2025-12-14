@@ -79,6 +79,7 @@ In the menu:
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `max` | integer | `50` | Maximum number of entries to keep. |
+| `keep_closed` | boolean | `false` | Keep closed (non-pinned) entries in the MRU ring; still capped by `max` (oldest evicted first). |
 | `commit_on_touch` | boolean | `true` | If `false`, buffers are committed immediately instead of waiting for a touch event. |
 | `touch_events` | table | `{ "CursorMoved", "InsertEnter", "TextChanged" }` | Autocommands that count as a "touch". |
 | `ignore` | table | (built-in) | Extend the built-in ignore lists (`buftype`, `filetype`, `name_patterns`). Uses `vim.tbl_deep_extend`. |

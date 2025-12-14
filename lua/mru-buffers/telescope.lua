@@ -31,7 +31,7 @@ return function(M, U)
 				local b = vim.fn.bufnr(path, false)
 				local is_real = b and b > 0 and U.buf_valid(b) and type(M._buf_real) == "function" and M._buf_real(b)
 				local pinned = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) ~= nil
-				if is_real or pinned then
+				if is_real or pinned or M.keep_closed == true then
 					table.insert(items, { path = path, bufnr = is_real and b or nil })
 				end
 			end

@@ -18,7 +18,7 @@ M.max = 50
 -- Preview mode: buffers entered via cycle keys are NOT committed until user "uses" them.
 M.commit_on_touch = true
 
--- Touch events (CursorMoved is fine once we gate it by real keypress)
+-- wowzser events (CursorMoved is fine once we gate it by real keypress)
 M.touch_events = { "CursorMoved", "InsertEnter", "TextChanged" }
 
 M._list = {} -- MRU unique ring of file paths, most-recent first
@@ -26,6 +26,10 @@ M._pos = 1 -- current position in ring (1 = most recent)
 M._nav_lock = false
 
 M.keymaps = vim.deepcopy(DEFAULT_KEYMAPS)
+
+-- When true, closed buffers are kept in the MRU ring (still capped by `max`).
+-- Default stays classic: closed (non-pinned) entries are removed.
+M.keep_closed = false
 
 -- Preview/commit state
 M._preview_active = false
