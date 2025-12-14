@@ -287,6 +287,18 @@ return function(M, U)
 	M._clear_preview = clear_preview
 	M._save_mru = save_mru
 	M._load_mru = load_mru
+	M._bootstrap_mru = function()
+		-- If the plugin is loaded lazily (e.g. `event = "VeryLazy"`), the initial
+		-- `BufEnter` may have already happened before our autocmds were registered.
+		-- Seed the ring with the current buffer so the MRU isn't empty.
+		if type(M._list) == "table" and #M._list > 0 then
+			return
+		end
+		local cur = vim.api.nvim_get_current_buf()
+		if buf_real(cur) then
+			M._record(cur)
+		end
+	end
 
 	-- ========= public: MRU core =========
 	function M._record(buf)

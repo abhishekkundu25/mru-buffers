@@ -106,12 +106,19 @@ return function(M, U)
 					enabled = true
 				end
 				M.keep_closed = enabled == true
-				M.keep_closed_persist = opts.keep_closed.persist == true
+				M.keep_closed_persist = opts.keep_closed.persist == true or opts.keep_closed.persit == true
 				if opts.keep_closed.file ~= nil then
 					M.keep_closed_file = opts.keep_closed.file
 				end
 				if M.keep_closed_persist == true then
 					M.keep_closed = true
+					if opts.keep_closed.persit == true and opts.keep_closed.persist ~= true then
+						pcall(
+							vim.notify,
+							"MRU: `keep_closed.persit` is a typo; use `keep_closed.persist`",
+							vim.log.levels.WARN
+						)
+					end
 				end
 			else
 				M.keep_closed = opts.keep_closed == true
@@ -298,6 +305,10 @@ return function(M, U)
 
 		if M.persist_pins and type(M._load_pins) == "function" then
 			M._load_pins()
+		end
+
+		if type(M._bootstrap_mru) == "function" then
+			M._bootstrap_mru()
 		end
 
 		if
