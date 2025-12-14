@@ -238,7 +238,64 @@ return function(M, U)
 		return a .. sep .. d, { cell_w = cell_w, sep = sep, add_len = #a, del_len = #d }
 	end
 
+	local function format_badge(add, del)
+		local col = M.git and M.git.column or {}
+		local add_prefix = col.add_prefix or "+"
+		local del_prefix = col.del_prefix or "-"
+
+		local function abbrev(n)
+			n = tonumber(n) or 0
+			if n < 1000 then
+				return tostring(n)
+			end
+			if n < 10000 then
+				local v = math.floor(n / 100) / 10 -- 1 decimal, floored
+				if v >= 10 then
+					return tostring(math.floor(n / 1000)) .. "k"
+				end
+				return string.format("%.1fk", v)
+			end
+			if n < 1000000 then
+				return tostring(math.floor(n / 1000)) .. "k"
+			end
+			if n < 10000000 then
+				local v = math.floor(n / 100000) / 10 -- 1 decimal, floored
+				if v >= 10 then
+					return tostring(math.floor(n / 1000000)) .. "m"
+				end
+				return string.format("%.1fm", v)
+			end
+			if n < 1000000000 then
+				return tostring(math.floor(n / 1000000)) .. "m"
+			end
+			return tostring(math.floor(n / 1000000000)) .. "b"
+		end
+
+		local add_tok = (add and add > 0) and (add_prefix .. abbrev(add)) or nil
+		local del_tok = (del and del > 0) and (del_prefix .. abbrev(del)) or nil
+
+		if not add_tok and not del_tok then
+			return "", { add = nil, del = nil, sep = " " }
+		end
+
+		local badge, meta = "", { add = nil, del = nil, sep = " " }
+		if add_tok and del_tok then
+			badge = add_tok .. " " .. del_tok
+			meta.add = { start = 1, len = #add_tok }
+			meta.del = { start = #add_tok + 2, len = #del_tok }
+		else
+			badge = add_tok or del_tok
+			if add_tok then
+				meta.add = { start = 1, len = #add_tok }
+			else
+				meta.del = { start = 1, len = #del_tok }
+			end
+		end
+		return badge, meta
+	end
+
 	M._git_find_root_for_dir = find_git_root_for_dir
 	M._git_stats_for_paths = stats_for_paths
 	M._git_format_cells = format_cells
+	M._git_format_badge = format_badge
 end

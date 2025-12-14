@@ -130,7 +130,6 @@ return function(M, U)
 
 		local pickers = require("telescope.pickers")
 		local finders = require("telescope.finders")
-		local entry_display = require("telescope.pickers.entry_display")
 		local tutils = require("telescope.utils")
 		local conf = require("telescope.config").values
 		local actions = require("telescope.actions")
@@ -140,26 +139,7 @@ return function(M, U)
 			and M.git.enabled == true
 			and M.git.show_in_telescope ~= false
 			and type(M._git_stats_for_paths) == "function"
-			and type(M._git_format_cells) == "function"
-
-		local git_cells = (show_git and M.git and M.git.column) or {}
-		local cell_w = tonumber(git_cells.cell_width) or 5
-		local cell_sep = git_cells.sep or " "
-
-		local display_items = {
-			{ width = 4 }, -- pin tag
-		}
-		if show_git then
-			display_items[#display_items + 1] = { width = cell_w } -- +N
-			display_items[#display_items + 1] = { width = cell_w } -- -N
-		end
-		display_items[#display_items + 1] = { width = 2 } -- icon
-		display_items[#display_items + 1] = { remaining = true } -- path (+ suffix)
-
-		local displayer = entry_display.create({
-			separator = " ",
-			items = display_items,
-		})
+			and type(M._git_format_badge) == "function"
 
 		local function make_finder()
 			local results = collect_items()
@@ -189,23 +169,14 @@ return function(M, U)
 					local icon, icon_hl = tutils.get_devicons(path, opts.disable_devicons)
 					icon = (type(icon) == "string" and icon ~= "") and icon or " "
 
-					local add_cell, del_cell, add_hl, del_hl = nil, nil, nil, nil
+					local git_badge, git_meta, git_add, git_del = "", nil, false, false
 					if show_git then
-						add_cell, del_cell = string.rep(" ", cell_w), string.rep(" ", cell_w)
 						local abs = U.normalize_path(path)
 						local st = abs and git_map and git_map[abs] or nil
-						if st and type(M._git_format_cells) == "function" then
-							local combined, meta = M._git_format_cells(st.add or 0, st.del or 0)
-							if combined and meta then
-								add_cell = combined:sub(1, meta.cell_w or cell_w)
-								del_cell = combined:sub((meta.cell_w or cell_w) + #cell_sep + 1, (meta.cell_w or cell_w) * 2 + #cell_sep)
-								if (st.add or 0) > 0 then
-									add_hl = "MRUBuffersTelescopeGitAdd"
-								end
-								if (st.del or 0) > 0 then
-									del_hl = "MRUBuffersTelescopeGitDel"
-								end
-							end
+						if st then
+							git_add = (st.add or 0) > 0
+							git_del = (st.del or 0) > 0
+							git_badge, git_meta = M._git_format_badge(st.add or 0, st.del or 0)
 						end
 					end
 
@@ -215,16 +186,55 @@ return function(M, U)
 							local left_hl = entry.pin_slot and "MRUBuffersTelescopePin" or "TelescopeResultsNumber"
 							local right_hl = entry.is_closed and "MRUBuffersTelescopeClosed"
 								or (entry.is_modified and "MRUBuffersTelescopeModified" or "MRUBuffersTelescopePath")
-							local parts = {
-								{ entry.pin_tag, left_hl },
-							}
-							if show_git then
-								parts[#parts + 1] = { entry.add_cell or string.rep(" ", cell_w), entry.add_hl }
-								parts[#parts + 1] = { entry.del_cell or string.rep(" ", cell_w), entry.del_hl }
+
+							local parts = {}
+							local highlights = {}
+							local col = 0
+
+							local function push(text)
+								if not text or text == "" then
+									return 0
+								end
+								parts[#parts + 1] = text
+								local len = #text
+								col = col + len
+								return len
 							end
-							parts[#parts + 1] = { entry.icon, entry.icon_hl }
-							parts[#parts + 1] = { entry.disp .. entry.suffix, right_hl }
-							return displayer(parts)
+
+							local function push_hl(text, hl)
+								local start = col
+								local len = push(text)
+								if hl and len > 0 then
+									highlights[#highlights + 1] = { { start, start + len }, hl }
+								end
+							end
+
+							local pin = entry.pin_tag or "   "
+							if #pin < 4 then
+								pin = pin .. string.rep(" ", 4 - #pin)
+							end
+							push_hl(pin, left_hl)
+							push(" ")
+
+							if show_git and entry.git_badge and entry.git_badge ~= "" then
+								local badge_start = col
+								push(entry.git_badge)
+								if entry.git_add and entry.git_meta and entry.git_meta.add then
+									local s = badge_start + (entry.git_meta.add.start - 1)
+									highlights[#highlights + 1] = { { s, s + entry.git_meta.add.len }, "MRUBuffersTelescopeGitAdd" }
+								end
+								if entry.git_del and entry.git_meta and entry.git_meta.del then
+									local s = badge_start + (entry.git_meta.del.start - 1)
+									highlights[#highlights + 1] = { { s, s + entry.git_meta.del.len }, "MRUBuffersTelescopeGitDel" }
+								end
+								push(" ")
+							end
+
+							push_hl(entry.icon, entry.icon_hl)
+							push(" ")
+							push_hl(entry.disp .. entry.suffix, right_hl)
+
+							return table.concat(parts, ""), highlights
 						end,
 						ordinal = table.concat({ disp, path, pin_tag }, " "),
 						path = path,
@@ -235,10 +245,10 @@ return function(M, U)
 						pin_tag = pin_tag,
 						icon = icon,
 						icon_hl = icon_hl,
-						add_cell = add_cell,
-						del_cell = del_cell,
-						add_hl = add_hl,
-						del_hl = del_hl,
+						git_badge = git_badge,
+						git_meta = git_meta,
+						git_add = git_add,
+						git_del = git_del,
 						is_closed = is_closed,
 						is_modified = is_modified,
 					}
