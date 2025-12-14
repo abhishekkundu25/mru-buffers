@@ -369,15 +369,25 @@ return function(M, U)
 		end
 
 		prune()
-		if #M._list <= 1 then
+		if #M._list == 0 then
 			vim.notify("MRU: nothing to cycle", vim.log.levels.INFO)
+			return
+		end
+		if #M._list == 1 then
+			goto_path(M._list[1], 1, M.commit_on_touch)
 			return
 		end
 
 		local cur = vim.api.nvim_get_current_buf()
 		local cur_path = path_for_buf(cur)
 		local idx = cur_path and find_index(cur_path) or nil
-		if idx and idx ~= M._pos then
+		if not idx then
+			-- If current buffer isn't in the ring (e.g. dashboard / empty buffer /
+			-- plugin loaded after initial BufEnter), jump to most recent.
+			goto_path(M._list[1], 1, M.commit_on_touch)
+			return
+		end
+		if idx ~= M._pos then
 			M._pos = idx
 		end
 
@@ -411,15 +421,24 @@ return function(M, U)
 		end
 
 		prune()
-		if #M._list <= 1 then
+		if #M._list == 0 then
 			vim.notify("MRU: nothing to cycle", vim.log.levels.INFO)
+			return
+		end
+		if #M._list == 1 then
+			goto_path(M._list[1], 1, M.commit_on_touch)
 			return
 		end
 
 		local cur = vim.api.nvim_get_current_buf()
 		local cur_path = path_for_buf(cur)
 		local idx = cur_path and find_index(cur_path) or nil
-		if idx and idx ~= M._pos then
+		if not idx then
+			-- If current buffer isn't in the ring, jump to most recent.
+			goto_path(M._list[1], 1, M.commit_on_touch)
+			return
+		end
+		if idx ~= M._pos then
 			M._pos = idx
 		end
 
