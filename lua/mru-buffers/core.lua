@@ -168,15 +168,15 @@ return function(M, U)
 		if type(M.keep_closed_file) == "string" and M.keep_closed_file ~= "" then
 			return M.keep_closed_file
 		end
-		return vim.fn.stdpath("state") .. "/mru-buffers-mru.json"
+		return vim.fn.stdpath("data") .. "/mru-buffers-mru.json"
 	end
 
 	local function mru_legacy_persist_path()
-		-- Backwards compat: older versions stored MRU in stdpath("data").
+		-- Backwards compat: some versions stored MRU in stdpath("state").
 		if type(M.keep_closed_file) == "string" and M.keep_closed_file ~= "" then
 			return nil
 		end
-		return vim.fn.stdpath("data") .. "/mru-buffers-mru.json"
+		return vim.fn.stdpath("state") .. "/mru-buffers-mru.json"
 	end
 
 	local function save_mru()
@@ -197,7 +197,22 @@ return function(M, U)
 		end
 
 		local file = mru_persist_path()
-		pcall(vim.fn.writefile, { encoded }, file)
+		local dir = vim.fn.fnamemodify(file, ":h")
+		if dir and dir ~= "" then
+			pcall(vim.fn.mkdir, dir, "p")
+		end
+
+		local w_ok, w_res = pcall(vim.fn.writefile, { encoded }, file)
+		if not w_ok or w_res ~= 0 then
+			if not M._mru_persist_warned then
+				M._mru_persist_warned = true
+				pcall(
+					vim.notify,
+					("MRU: failed to write MRU persistence file: %s"):format(file),
+					vim.log.levels.WARN
+				)
+			end
+		end
 	end
 
 	local function load_mru()
@@ -215,7 +230,10 @@ return function(M, U)
 			end
 		end
 
-		local lines = vim.fn.readfile(file)
+		local r_ok, lines = pcall(vim.fn.readfile, file)
+		if not r_ok or type(lines) ~= "table" then
+			return
+		end
 		local decoded_ok, decoded = pcall(U.json_decode, table.concat(lines, "\n"))
 		if not decoded_ok or type(decoded) ~= "table" then
 			return
