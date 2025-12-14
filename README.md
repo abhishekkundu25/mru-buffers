@@ -79,7 +79,7 @@ In the menu:
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `max` | integer | `50` | Maximum number of entries to keep. |
-| `keep_closed` | boolean/table | `false` | Keep closed (non-pinned) entries in the MRU ring; set `{ persist = true }` to persist the ring between Neovim sessions. |
+| `keep_closed` | boolean/table | `false` | Keep closed (non-pinned) entries in the MRU ring; set `{ persist = true }` to persist the ring between Neovim sessions (defaults to `stdpath("state") .. "/mru-buffers-mru.json"`). |
 | `commit_on_touch` | boolean | `true` | If `false`, buffers are committed immediately instead of waiting for a touch event. |
 | `touch_events` | table | `{ "CursorMoved", "InsertEnter", "TextChanged" }` | Autocommands that count as a "touch". |
 | `ignore` | table | (built-in) | Extend the built-in ignore lists (`buftype`, `filetype`, `name_patterns`). Uses `vim.tbl_deep_extend`. |

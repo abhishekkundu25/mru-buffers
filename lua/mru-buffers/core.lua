@@ -168,6 +168,14 @@ return function(M, U)
 		if type(M.keep_closed_file) == "string" and M.keep_closed_file ~= "" then
 			return M.keep_closed_file
 		end
+		return vim.fn.stdpath("state") .. "/mru-buffers-mru.json"
+	end
+
+	local function mru_legacy_persist_path()
+		-- Backwards compat: older versions stored MRU in stdpath("data").
+		if type(M.keep_closed_file) == "string" and M.keep_closed_file ~= "" then
+			return nil
+		end
 		return vim.fn.stdpath("data") .. "/mru-buffers-mru.json"
 	end
 
@@ -199,7 +207,12 @@ return function(M, U)
 
 		local file = mru_persist_path()
 		if vim.fn.filereadable(file) ~= 1 then
-			return
+			local legacy = mru_legacy_persist_path()
+			if legacy and vim.fn.filereadable(legacy) == 1 then
+				file = legacy
+			else
+				return
+			end
 		end
 
 		local lines = vim.fn.readfile(file)
@@ -237,6 +250,11 @@ return function(M, U)
 		end
 
 		enforce_max()
+
+		-- If we loaded from the legacy location, save once to the new default.
+		if file == mru_legacy_persist_path() then
+			save_mru()
+		end
 	end
 
 	-- expose internal helpers for other modules
