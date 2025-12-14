@@ -84,6 +84,7 @@ In the menu:
 | `ignore` | table | (built-in) | Extend the built-in ignore lists (`buftype`, `filetype`, `name_patterns`). Uses `vim.tbl_deep_extend`. |
 | `keymaps` | table/`false`/`true` | (built-in) | Provide your own default maps (`{ menu, prev, next, pins = { set_prefix, jump_prefix } }`). Set to `false` to skip installing keymaps; set to `true` to reset to defaults. |
 | `cycle_keys` | table | (derived) | Extra keys that should be ignored while in preview mode. By default the plugin infers this from the configured `keymaps`. When `keymaps = false`, set this manually. |
+| `git` | table | (built-in) | Optional git diffstat column (`+`/`-` line counts) for MRU menu and Telescope picker. Disabled by default. |
 | `ui` | table | (built-in) | MRU menu UI options (see below). |
 | `persist_pins` | boolean | `false` | Persist pinned slots to disk and reload on startup. |
 | `persist_file` | string | `stdpath("data") .. "/mru-buffers-pins.json"` | Override the persistence file path. |
@@ -130,6 +131,12 @@ require("mru-buffers").setup({
     show_count_in_title = true,
     show_footer = true,
   },
+  git = {
+    enabled = true, -- shows +/− columns when inside a git repo
+    include_staged = true,
+    include_unstaged = true,
+    refresh_ms = 1500,
+  },
   persist_pins = true,
 })
 ```
@@ -149,6 +156,8 @@ Inside the Telescope picker:
 - `x` (normal) / `<C-x>` (insert) pin/unpin selection
 - `X` (normal) pin from the top of the MRU list into free slots (1..9)
 - `c` (normal) / `<C-c>` (insert) close selection (only if saved)
+
+The Telescope picker also respects your Telescope defaults like `path_display` and `color_devicons`.
 
 ## Example (Fancy)
 

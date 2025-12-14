@@ -50,6 +50,22 @@ M._pins = {} -- slot -> { path = string, bufnr = number|nil }
 M.persist_pins = false
 M.persist_file = nil
 
+-- Git diffstat column (optional)
+M.git = {
+	enabled = false,
+	include_unstaged = true,
+	include_staged = true,
+	show_in_menu = true,
+	show_in_telescope = true,
+	refresh_ms = 1500,
+	column = {
+		add_prefix = "+",
+		del_prefix = "-",
+		cell_width = 5,
+		sep = " ",
+	},
+}
+
 -- Keys used for cycling (so we can ignore them in "touch" logic)
 M.cycle_keys = {}
 
@@ -87,6 +103,7 @@ M._augroup = nil
 local U = require("mru-buffers.util")
 require("mru-buffers.core")(M, U)
 require("mru-buffers.pins")(M, U)
+require("mru-buffers.git")(M, U)
 require("mru-buffers.ui")(M, U)
 require("mru-buffers.telescope")(M, U)
 require("mru-buffers.setup")(M, U)

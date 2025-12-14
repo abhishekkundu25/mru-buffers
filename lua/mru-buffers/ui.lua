@@ -53,6 +53,8 @@ return function(M, U)
 		link("MRUBuffersModified", "DiagnosticWarn")
 		link("MRUBuffersClosed", "Comment")
 		link("MRUBuffersHint", "Comment")
+		link("MRUBuffersGitAdd", "DiffAdd")
+		link("MRUBuffersGitDel", "DiffDelete")
 
 		M._ui_hl_ready = true
 	end
@@ -256,18 +258,50 @@ return function(M, U)
 	local function render_menu(list_buf, list_win, items)
 		local fancy = M.ui and M.ui.fancy == true
 
+		local git_map = nil
+		if M.git and M.git.enabled == true and M.git.show_in_menu ~= false and type(M._git_stats_for_paths) == "function" then
+			local paths = {}
+			for _, it in ipairs(items) do
+				if it and it.path then
+					paths[#paths + 1] = it.path
+				end
+			end
+			git_map = M._git_stats_for_paths(paths)
+		end
+
+		local function git_cells_for(path)
+			if not (git_map and path) then
+				return nil, nil, nil
+			end
+			local abs = U.normalize_path(path)
+			local st = abs and git_map[abs] or nil
+			if not st then
+				return nil, nil, nil
+			end
+			if type(M._git_format_cells) == "function" then
+				local combined, meta = M._git_format_cells(st.add or 0, st.del or 0)
+				return combined, meta, st
+			end
+			return nil, nil, nil
+		end
+
 		if not fancy then
 			local lines = {}
 			for i, it in ipairs(items) do
 				local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(it.path) or nil
 				local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
 				local disp = vim.fn.fnamemodify(it.path, ":~:.")
+				local git_col = ""
+				local git_combined = git_cells_for(it.path)
+				if git_combined then
+					git_col = "  " .. git_combined
+				end
 				if it.bufnr and vim.bo[it.bufnr].modified then
 					disp = disp .. "  [unsaved]"
 				elseif not it.bufnr then
 					disp = disp .. "  [closed]"
 				end
-				lines[i] = string.format("%2d  %s  %s", i, pin_tag, disp)
+				lines[i] = string.format("%2d  %s%s  %s", i, pin_tag, git_col, disp)
 			end
 
 			vim.bo[list_buf].modifiable = true
@@ -290,6 +324,8 @@ return function(M, U)
 		for i, it in ipairs(items) do
 			local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(it.path) or nil
 			local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
+			local git_combined, git_meta = git_cells_for(it.path)
+			local git_part = git_combined and (git_combined .. "  ") or ""
 			local icon, icon_hl = devicon_for(it.path)
 			local icon_part = icon and (icon .. " ") or ""
 
@@ -301,14 +337,15 @@ return function(M, U)
 				suffix = "  [closed]"
 			end
 
-			local line = string.format("%2d  %s  %s%s%s", i, pin_tag, icon_part, disp, suffix)
+			local line = string.format("%2d  %s  %s%s%s%s", i, pin_tag, git_part, icon_part, disp, suffix)
 			lines[i] = line
 
 			meta[i] = {
 				pin_slot = pin_slot,
+				git = git_meta,
 				icon_hl = icon_hl,
 				icon_len = icon and #icon or 0,
-				name_col = 9 + #icon_part,
+				name_col = 9 + #git_part + #icon_part,
 				suffix = suffix,
 			}
 		end
@@ -337,8 +374,19 @@ return function(M, U)
 			local pin_hl = m.pin_slot and "MRUBuffersPin" or "MRUBuffersClosed"
 			vim.api.nvim_buf_add_highlight(list_buf, M._ui_ns, pin_hl, i - 1, 4, 7)
 
+			if m.git then
+				local git_col = 9
+				local cell_w = m.git.cell_w or 5
+				local sep_len = #(m.git.sep or " ")
+				-- "+N" cell
+				vim.api.nvim_buf_add_highlight(list_buf, M._ui_ns, "MRUBuffersGitAdd", i - 1, git_col, git_col + cell_w)
+				-- "-N" cell
+				local del_col = git_col + cell_w + sep_len
+				vim.api.nvim_buf_add_highlight(list_buf, M._ui_ns, "MRUBuffersGitDel", i - 1, del_col, del_col + cell_w)
+			end
+
 			if m.icon_len > 0 and m.icon_hl then
-				local icon_col = 9
+				local icon_col = 9 + (m.git and (#(m.git.sep or " ") + (m.git.cell_w or 5) * 2 + 2) or 0)
 				vim.api.nvim_buf_add_highlight(list_buf, M._ui_ns, m.icon_hl, i - 1, icon_col, icon_col + m.icon_len)
 			end
 

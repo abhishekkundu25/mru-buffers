@@ -106,6 +106,9 @@ return function(M, U)
 		if opts.ui then
 			M.ui = vim.tbl_deep_extend("force", M.ui or {}, opts.ui)
 		end
+		if opts.git then
+			M.git = vim.tbl_deep_extend("force", M.git or {}, opts.git)
+		end
 
 		if opts.persist_pins ~= nil then
 			M.persist_pins = opts.persist_pins == true

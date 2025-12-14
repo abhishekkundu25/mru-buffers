@@ -15,6 +15,8 @@ return function(M, U)
 		link("MRUBuffersTelescopePath", "Normal")
 		link("MRUBuffersTelescopeClosed", "Comment")
 		link("MRUBuffersTelescopeModified", "DiagnosticWarn")
+		link("MRUBuffersTelescopeGitAdd", "DiffAdd")
+		link("MRUBuffersTelescopeGitDel", "DiffDelete")
 		hl_ready = true
 	end
 
@@ -129,20 +131,39 @@ return function(M, U)
 		local pickers = require("telescope.pickers")
 		local finders = require("telescope.finders")
 		local entry_display = require("telescope.pickers.entry_display")
+		local tutils = require("telescope.utils")
 		local conf = require("telescope.config").values
 		local actions = require("telescope.actions")
 		local action_state = require("telescope.actions.state")
+
+		local git_cells = (M.git and M.git.column) or {}
+		local cell_w = tonumber(git_cells.cell_width) or 5
+		local cell_sep = git_cells.sep or " "
 
 		local displayer = entry_display.create({
 			separator = " ",
 			items = {
 				{ width = 4 }, -- pin tag
+				{ width = cell_w }, -- +N
+				{ width = cell_w }, -- -N
+				{ width = 2 }, -- icon
 				{ remaining = true }, -- path (+ suffix)
 			},
 		})
 
 		local function make_finder()
 			local results = collect_items()
+			local git_map = nil
+			if M.git and M.git.enabled == true and M.git.show_in_telescope ~= false and type(M._git_stats_for_paths) == "function" then
+				local paths = {}
+				for _, it in ipairs(results) do
+					if it and it.path then
+						paths[#paths + 1] = it.path
+					end
+				end
+				git_map = M._git_stats_for_paths(paths)
+			end
+
 			return finders.new_table({
 				results = results,
 				entry_maker = function(item)
@@ -150,10 +171,24 @@ return function(M, U)
 					local bufnr = item.bufnr
 					local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) or nil
 					local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
-					local disp = vim.fn.fnamemodify(path, ":~:.")
+					local disp = select(1, tutils.transform_path(opts, path))
 					local is_modified = bufnr and U.buf_valid(bufnr) and vim.bo[bufnr].modified
 					local is_closed = not bufnr
 					local suffix = is_modified and " [unsaved]" or (is_closed and "  [closed]" or "")
+
+					local icon, icon_hl = tutils.get_devicons(path, opts.disable_devicons)
+					icon = (type(icon) == "string" and icon ~= "") and icon or " "
+
+					local add_cell, del_cell = string.rep(" ", cell_w), string.rep(" ", cell_w)
+					local abs = U.normalize_path(path)
+					local st = abs and git_map and git_map[abs] or nil
+					if st and type(M._git_format_cells) == "function" then
+						local combined, meta = M._git_format_cells(st.add or 0, st.del or 0)
+						if combined and meta then
+							add_cell = combined:sub(1, meta.cell_w or cell_w)
+							del_cell = combined:sub((meta.cell_w or cell_w) + #cell_sep + 1, (meta.cell_w or cell_w) * 2 + #cell_sep)
+						end
+					end
 
 					return {
 						value = item,
@@ -163,16 +198,23 @@ return function(M, U)
 								or (entry.is_modified and "MRUBuffersTelescopeModified" or "MRUBuffersTelescopePath")
 							return displayer({
 								{ entry.pin_tag, left_hl },
+								{ entry.add_cell, "MRUBuffersTelescopeGitAdd" },
+								{ entry.del_cell, "MRUBuffersTelescopeGitDel" },
+								{ entry.icon, entry.icon_hl },
 								{ entry.disp .. entry.suffix, right_hl },
 							})
 						end,
-						ordinal = disp .. " " .. pin_tag,
+						ordinal = table.concat({ disp, path, pin_tag }, " "),
 						path = path,
 						bufnr = bufnr,
 						disp = disp,
 						suffix = suffix,
 						pin_slot = pin_slot,
 						pin_tag = pin_tag,
+						icon = icon,
+						icon_hl = icon_hl,
+						add_cell = add_cell,
+						del_cell = del_cell,
 						is_closed = is_closed,
 						is_modified = is_modified,
 					}
