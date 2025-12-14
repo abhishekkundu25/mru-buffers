@@ -216,9 +216,15 @@ return function(M, U)
 							push_hl(pin, left_hl)
 							push(" ")
 
-							if show_git and entry.git_badge and entry.git_badge ~= "" then
-								local badge_start = col
-								push(entry.git_badge)
+							push_hl(entry.icon, entry.icon_hl)
+							push(" ")
+							local git_suffix = (show_git and entry.git_badge and entry.git_badge ~= "") and (" [" .. entry.git_badge .. "]")
+								or ""
+							local path_start = col
+							push_hl(entry.disp .. git_suffix .. entry.suffix, right_hl)
+
+							if show_git and git_suffix ~= "" then
+								local badge_start = path_start + #entry.disp + 2 -- after " ["
 								if entry.git_add and entry.git_meta and entry.git_meta.add then
 									local s = badge_start + (entry.git_meta.add.start - 1)
 									highlights[#highlights + 1] = { { s, s + entry.git_meta.add.len }, "MRUBuffersTelescopeGitAdd" }
@@ -227,12 +233,7 @@ return function(M, U)
 									local s = badge_start + (entry.git_meta.del.start - 1)
 									highlights[#highlights + 1] = { { s, s + entry.git_meta.del.len }, "MRUBuffersTelescopeGitDel" }
 								end
-								push(" ")
 							end
-
-							push_hl(entry.icon, entry.icon_hl)
-							push(" ")
-							push_hl(entry.disp .. entry.suffix, right_hl)
 
 							return table.concat(parts, ""), highlights
 						end,

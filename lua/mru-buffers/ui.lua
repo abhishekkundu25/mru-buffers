@@ -295,18 +295,17 @@ return function(M, U)
 				local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
 				local disp = vim.fn.fnamemodify(it.path, ":~:.")
 				local git_badge = show_git and (select(1, git_cells_for(it.path)) or "") or ""
+				local status = ""
 				if it.bufnr and vim.bo[it.bufnr].modified then
-					disp = disp .. "  [unsaved]"
+					status = "  [unsaved]"
 				elseif not it.bufnr then
-					disp = disp .. "  [closed]"
+					status = "  [closed]"
 				end
-
-				local line = string.format("%2d  %s", i, pin_tag)
 				if git_badge ~= "" then
-					line = line .. "  " .. git_badge
+					disp = disp .. " [" .. git_badge .. "]"
 				end
-				line = line .. "  " .. disp
-				lines[i] = line
+				disp = disp .. status
+				lines[i] = string.format("%2d  %s  %s", i, pin_tag, disp)
 			end
 
 			vim.bo[list_buf].modifiable = true
@@ -330,11 +329,11 @@ return function(M, U)
 			local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(it.path) or nil
 			local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
 			local git_badge, git_meta, git_st = git_cells_for(it.path)
-			local git_part = (show_git and git_badge and git_badge ~= "") and (git_badge .. "  ") or ""
 			local icon, icon_hl = devicon_for(it.path)
 			local icon_part = icon and (icon .. " ") or ""
 
 			local disp = vim.fn.fnamemodify(it.path, ":~:.")
+			local git_suffix = (show_git and git_badge and git_badge ~= "") and (" [" .. git_badge .. "]") or ""
 			local suffix = ""
 			if it.bufnr and vim.bo[it.bufnr].modified then
 				suffix = M.ui.modified_icon or " ●"
@@ -342,7 +341,7 @@ return function(M, U)
 				suffix = "  [closed]"
 			end
 
-			local line = string.format("%2d  %s  %s%s%s%s", i, pin_tag, git_part, icon_part, disp, suffix)
+			local line = string.format("%2d  %s  %s%s%s%s", i, pin_tag, icon_part, disp, git_suffix, suffix)
 			lines[i] = line
 
 			meta[i] = {
@@ -352,8 +351,9 @@ return function(M, U)
 				git_del = git_st and (git_st.del or 0) > 0 or false,
 				icon_hl = icon_hl,
 				icon_len = icon and #icon or 0,
-				icon_col = 9 + #git_part,
-				name_col = 9 + #git_part + #icon_part,
+				icon_col = 9,
+				name_col = 9 + #icon_part,
+				git_col = (git_suffix ~= "") and (9 + #icon_part + #disp + 2) or nil, -- start of badge text (after " [")
 				suffix = suffix,
 			}
 		end
@@ -382,18 +382,6 @@ return function(M, U)
 			local pin_hl = m.pin_slot and "MRUBuffersPin" or "MRUBuffersClosed"
 			vim.api.nvim_buf_add_highlight(list_buf, M._ui_ns, pin_hl, i - 1, 4, 7)
 
-			if show_git and m.git then
-				local git_col = 9
-				if m.git_add and m.git.add then
-					local s = git_col + (m.git.add.start - 1)
-					vim.api.nvim_buf_add_highlight(list_buf, M._ui_ns, "MRUBuffersGitAdd", i - 1, s, s + m.git.add.len)
-				end
-				if m.git_del and m.git.del then
-					local s = git_col + (m.git.del.start - 1)
-					vim.api.nvim_buf_add_highlight(list_buf, M._ui_ns, "MRUBuffersGitDel", i - 1, s, s + m.git.del.len)
-				end
-			end
-
 			if m.icon_len > 0 and m.icon_hl then
 				vim.api.nvim_buf_add_highlight(list_buf, M._ui_ns, m.icon_hl, i - 1, m.icon_col, m.icon_col + m.icon_len)
 			end
@@ -403,6 +391,17 @@ return function(M, U)
 				name_hl = "MRUBuffersClosed"
 			end
 			vim.api.nvim_buf_add_highlight(list_buf, M._ui_ns, name_hl, i - 1, m.name_col, -1)
+
+			if show_git and m.git and m.git_col then
+				if m.git_add and m.git.add then
+					local s = m.git_col + (m.git.add.start - 1)
+					vim.api.nvim_buf_add_highlight(list_buf, M._ui_ns, "MRUBuffersGitAdd", i - 1, s, s + m.git.add.len)
+				end
+				if m.git_del and m.git.del then
+					local s = m.git_col + (m.git.del.start - 1)
+					vim.api.nvim_buf_add_highlight(list_buf, M._ui_ns, "MRUBuffersGitDel", i - 1, s, s + m.git.del.len)
+				end
+			end
 
 			if m.suffix == (M.ui.modified_icon or " ●") then
 				local start = #line - #m.suffix
