@@ -31,6 +31,11 @@ M.keymaps = vim.deepcopy(DEFAULT_KEYMAPS)
 -- Default stays classic: closed (non-pinned) entries are removed.
 M.keep_closed = false
 
+-- Optional: persist the MRU ring to disk between Neovim sessions.
+-- This is configured via `keep_closed = { persist = true }` in `setup()`.
+M.keep_closed_persist = false
+M.keep_closed_file = nil
+
 -- Preview/commit state
 M._preview_active = false
 M._preview_buf = nil

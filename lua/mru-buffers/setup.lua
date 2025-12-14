@@ -99,7 +99,25 @@ return function(M, U)
 
 		M.max = opts.max or M.max
 		if opts.keep_closed ~= nil then
-			M.keep_closed = opts.keep_closed == true
+			if type(opts.keep_closed) == "table" then
+				-- `keep_closed = { enabled = true, persist = true, file = "..." }`
+				local enabled = opts.keep_closed.enabled
+				if enabled == nil then
+					enabled = true
+				end
+				M.keep_closed = enabled == true
+				M.keep_closed_persist = opts.keep_closed.persist == true
+				if opts.keep_closed.file ~= nil then
+					M.keep_closed_file = opts.keep_closed.file
+				end
+				if M.keep_closed_persist == true then
+					M.keep_closed = true
+				end
+			else
+				M.keep_closed = opts.keep_closed == true
+				M.keep_closed_persist = false
+				M.keep_closed_file = nil
+			end
 		end
 		M.commit_on_touch = (opts.commit_on_touch ~= false)
 		M.touch_events = opts.touch_events or M.touch_events
@@ -274,13 +292,26 @@ return function(M, U)
 			end,
 		})
 
+		if M.keep_closed == true and M.keep_closed_persist == true and type(M._load_mru) == "function" then
+			M._load_mru()
+		end
+
 		if M.persist_pins and type(M._load_pins) == "function" then
 			M._load_pins()
+		end
+
+		if
+			(M.persist_pins and type(M._save_pins) == "function")
+			or (M.keep_closed == true and M.keep_closed_persist == true and type(M._save_mru) == "function")
+		then
 			vim.api.nvim_create_autocmd("VimLeavePre", {
 				group = M._augroup,
 				callback = function()
-					if type(M._save_pins) == "function" then
+					if M.persist_pins and type(M._save_pins) == "function" then
 						M._save_pins()
+					end
+					if M.keep_closed == true and M.keep_closed_persist == true and type(M._save_mru) == "function" then
+						M._save_mru()
 					end
 				end,
 			})

@@ -164,6 +164,81 @@ return function(M, U)
 		M._preview_key_counter_at_enter = 0
 	end
 
+	local function mru_persist_path()
+		if type(M.keep_closed_file) == "string" and M.keep_closed_file ~= "" then
+			return M.keep_closed_file
+		end
+		return vim.fn.stdpath("data") .. "/mru-buffers-mru.json"
+	end
+
+	local function save_mru()
+		if not (M.keep_closed == true and M.keep_closed_persist == true) then
+			return
+		end
+
+		local out = { version = 1, list = {}, pos = tonumber(M._pos) or 1 }
+		for _, path in ipairs(M._list or {}) do
+			if type(path) == "string" and path ~= "" then
+				out.list[#out.list + 1] = path
+			end
+		end
+
+		local ok, encoded = pcall(U.json_encode, out)
+		if not ok or type(encoded) ~= "string" then
+			return
+		end
+
+		local file = mru_persist_path()
+		pcall(vim.fn.writefile, { encoded }, file)
+	end
+
+	local function load_mru()
+		if not (M.keep_closed == true and M.keep_closed_persist == true) then
+			return
+		end
+
+		local file = mru_persist_path()
+		if vim.fn.filereadable(file) ~= 1 then
+			return
+		end
+
+		local lines = vim.fn.readfile(file)
+		local decoded_ok, decoded = pcall(U.json_decode, table.concat(lines, "\n"))
+		if not decoded_ok or type(decoded) ~= "table" then
+			return
+		end
+
+		local list = decoded.list
+		if type(list) ~= "table" then
+			return
+		end
+
+		local new = {}
+		local seen = {}
+		for _, path in ipairs(list) do
+			if type(path) == "string" and path ~= "" then
+				path = U.normalize_path(path)
+				if path and not seen[path] then
+					-- keep only existing files; non-existent paths aren't useful
+					if vim.fn.filereadable(path) == 1 then
+						seen[path] = true
+						new[#new + 1] = path
+					end
+				end
+			end
+		end
+
+		M._list = new
+		if #M._list == 0 then
+			M._pos = 1
+		else
+			local pos = tonumber(decoded.pos) or 1
+			M._pos = math.min(math.max(1, pos), #M._list)
+		end
+
+		enforce_max()
+	end
+
 	-- expose internal helpers for other modules
 	M._should_ignore = should_ignore
 	M._buf_real = buf_real
@@ -174,6 +249,8 @@ return function(M, U)
 	M._prune = prune
 	M._find_index = find_index
 	M._clear_preview = clear_preview
+	M._save_mru = save_mru
+	M._load_mru = load_mru
 
 	-- ========= public: MRU core =========
 	function M._record(buf)
