@@ -156,15 +156,15 @@ return function(M, U)
 
 			return finders.new_table({
 				results = results,
-				entry_maker = function(item)
-					local path = item.path
-					local bufnr = item.bufnr
-					local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) or nil
-					local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
-					local disp = select(1, tutils.transform_path(opts, path))
-					local is_modified = bufnr and U.buf_valid(bufnr) and vim.bo[bufnr].modified
-					local is_closed = not bufnr
-					local suffix = is_modified and " [unsaved]" or (is_closed and "  [closed]" or "")
+					entry_maker = function(item)
+						local path = item.path
+						local bufnr = item.bufnr
+						local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) or nil
+						local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
+						local disp_fallback = vim.fn.fnamemodify(path, ":~:.")
+						local is_modified = bufnr and U.buf_valid(bufnr) and vim.bo[bufnr].modified
+						local is_closed = not bufnr
+						local suffix = is_modified and " [unsaved]" or (is_closed and "  [closed]" or "")
 
 					local icon, icon_hl = tutils.get_devicons(path, opts.disable_devicons)
 					icon = (type(icon) == "string" and icon ~= "") and icon or " "
@@ -218,13 +218,21 @@ return function(M, U)
 
 							push_hl(entry.icon, entry.icon_hl)
 							push(" ")
+							local disp = entry.disp_fallback or entry.path or ""
+							local ok_disp, transformed = pcall(function()
+								return select(1, tutils.transform_path(opts, entry.path))
+							end)
+							if ok_disp and type(transformed) == "string" and transformed ~= "" then
+								disp = transformed
+							end
+
 							local git_suffix = (show_git and entry.git_badge and entry.git_badge ~= "") and (" [" .. entry.git_badge .. "]")
 								or ""
 							local path_start = col
-							push_hl(entry.disp .. git_suffix .. entry.suffix, right_hl)
+							push_hl(disp .. git_suffix .. entry.suffix, right_hl)
 
 							if show_git and git_suffix ~= "" then
-								local badge_start = path_start + #entry.disp + 2 -- after " ["
+								local badge_start = path_start + #disp + 2 -- after " ["
 								if entry.git_add and entry.git_meta and entry.git_meta.add then
 									local s = badge_start + (entry.git_meta.add.start - 1)
 									highlights[#highlights + 1] = { { s, s + entry.git_meta.add.len }, "MRUBuffersTelescopeGitAdd" }
@@ -237,10 +245,10 @@ return function(M, U)
 
 							return table.concat(parts, ""), highlights
 						end,
-						ordinal = table.concat({ disp, path, pin_tag }, " "),
+						ordinal = table.concat({ disp_fallback, path, pin_tag }, " "),
 						path = path,
 						bufnr = bufnr,
-						disp = disp,
+						disp_fallback = disp_fallback,
 						suffix = suffix,
 						pin_slot = pin_slot,
 						pin_tag = pin_tag,
