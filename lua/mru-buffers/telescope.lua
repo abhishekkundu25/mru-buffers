@@ -21,50 +21,12 @@ return function(M, U)
 	end
 
 	local function collect_items()
-		if type(M._prune) == "function" then
-			M._prune()
-		end
-
-		local items = {}
-		for _, path in ipairs(M._list or {}) do
-			if type(path) == "string" and path ~= "" then
-				local b = vim.fn.bufnr(path, false)
-				local is_real = b and b > 0 and U.buf_valid(b) and type(M._buf_real) == "function" and M._buf_real(b)
-				local pinned = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) ~= nil
-				if is_real or pinned or M.keep_closed == true then
-					table.insert(items, { path = path, bufnr = is_real and b or nil })
-				end
-			end
-		end
-		return items
+		return M.entries()
 	end
 
 	local function open_item(item)
-		if not (item and item.path) then
-			return
-		end
-
-		if item.bufnr and U.buf_valid(item.bufnr) then
-			vim.cmd(("buffer %d"):format(item.bufnr))
-			if type(M._normalize_file_buffer) == "function" then
-				M._normalize_file_buffer(item.bufnr)
-			end
-			return
-		end
-
-		pcall(vim.cmd, ("badd %s"):format(vim.fn.fnameescape(item.path)))
-		local b = vim.fn.bufnr(item.path, false)
-		if b and b > 0 and U.buf_valid(b) then
-			vim.cmd(("buffer %d"):format(b))
-			if type(M._normalize_file_buffer) == "function" then
-				M._normalize_file_buffer(b)
-			end
-			return
-		end
-
-		pcall(vim.cmd, ("edit %s"):format(vim.fn.fnameescape(item.path)))
-		if type(M._normalize_file_buffer) == "function" then
-			M._normalize_file_buffer(vim.api.nvim_get_current_buf())
+		if item and not M._navigation.open(item, false) then
+			vim.notify("MRU: failed to open entry", vim.log.levels.WARN)
 		end
 	end
 
@@ -156,15 +118,15 @@ return function(M, U)
 
 			return finders.new_table({
 				results = results,
-					entry_maker = function(item)
-						local path = item.path
-						local bufnr = item.bufnr
-						local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) or nil
-						local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
-						local disp_fallback = vim.fn.fnamemodify(path, ":~:.")
-						local is_modified = bufnr and U.buf_valid(bufnr) and vim.bo[bufnr].modified
-						local is_closed = not bufnr
-						local suffix = is_modified and " [unsaved]" or (is_closed and "  [closed]" or "")
+				entry_maker = function(item)
+					local path = item.path
+					local bufnr = item.bufnr
+					local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) or nil
+					local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
+					local disp_fallback = vim.fn.fnamemodify(path, ":~:.")
+					local is_modified = bufnr and U.buf_valid(bufnr) and vim.bo[bufnr].modified
+					local is_closed = not bufnr
+					local suffix = is_modified and " [unsaved]" or (is_closed and "  [closed]" or "")
 
 					local icon, icon_hl = tutils.get_devicons(path, opts.disable_devicons)
 					icon = (type(icon) == "string" and icon ~= "") and icon or " "
@@ -226,7 +188,8 @@ return function(M, U)
 								disp = transformed
 							end
 
-							local git_suffix = (show_git and entry.git_badge and entry.git_badge ~= "") and (" [" .. entry.git_badge .. "]")
+							local git_suffix = (show_git and entry.git_badge and entry.git_badge ~= "")
+									and (" [" .. entry.git_badge .. "]")
 								or ""
 							local path_start = col
 							push_hl(disp .. git_suffix .. entry.suffix, right_hl)
@@ -235,11 +198,13 @@ return function(M, U)
 								local badge_start = path_start + #disp + 2 -- after " ["
 								if entry.git_add and entry.git_meta and entry.git_meta.add then
 									local s = badge_start + (entry.git_meta.add.start - 1)
-									highlights[#highlights + 1] = { { s, s + entry.git_meta.add.len }, "MRUBuffersTelescopeGitAdd" }
+									highlights[#highlights + 1] =
+										{ { s, s + entry.git_meta.add.len }, "MRUBuffersTelescopeGitAdd" }
 								end
 								if entry.git_del and entry.git_meta and entry.git_meta.del then
 									local s = badge_start + (entry.git_meta.del.start - 1)
-									highlights[#highlights + 1] = { { s, s + entry.git_meta.del.len }, "MRUBuffersTelescopeGitDel" }
+									highlights[#highlights + 1] =
+										{ { s, s + entry.git_meta.del.len }, "MRUBuffersTelescopeGitDel" }
 								end
 							end
 

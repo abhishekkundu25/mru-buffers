@@ -97,6 +97,10 @@ return function(M, U)
 			end
 		end
 
+		if opts.scope ~= nil then
+			assert(opts.scope == "global" or opts.scope == "cwd", "MRU: scope must be global or cwd")
+			M.scope = opts.scope
+		end
 		M.max = opts.max or M.max
 		if opts.keep_closed ~= nil then
 			if type(opts.keep_closed) == "table" then
@@ -146,149 +150,28 @@ return function(M, U)
 			vim.api.nvim_clear_autocmds({ group = M._augroup })
 		end
 
-		-- Keypress tracker (only used to gate "touch" commits)
-		if not M._key_ns then
-			M._key_ns = vim.api.nvim_create_namespace("mru_ring_keytrack")
-			vim.on_key(function(ch)
-				if not M._preview_active then
-					return
-				end
-				if vim.api.nvim_get_current_buf() ~= M._preview_buf then
-					return
-				end
-				M._key_counter = M._key_counter + 1
-				M._last_key = vim.fn.keytrans(ch)
-			end, M._key_ns)
-		end
-
-		-- Record normal BufEnter, but do not let Telescope cancel reorder MRU
+		local navigation = M._navigation
+		navigation.configure()
 		vim.api.nvim_create_autocmd("BufEnter", {
 			group = M._augroup,
 			callback = function(args)
-				local buf = args.buf
-
-				-- entering telescope UI
-				if type(M._is_telescope_ui) == "function" and M._is_telescope_ui(buf) then
-					if not M._ui_active then
-						M._ui_active = true
-						M._ui_origin_buf = vim.fn.bufnr("#")
-						M._ui_origin_pos = M._pos
-					end
-					return
-				end
-
-				-- leaving telescope UI
-				if M._ui_active then
-					local origin = M._ui_origin_buf
-					local origin_pos = M._ui_origin_pos
-					M._ui_active, M._ui_origin_buf, M._ui_origin_pos = false, nil, nil
-
-					-- Cancel -> ended up back at origin: do nothing
-					if origin and buf == origin then
-						if origin_pos then
-							M._pos = origin_pos
-						end
-						return
-					end
-				end
-
-				-- if we entered due to our MRU cycling, do not record here
-				if M._nav_lock then
-					return
-				end
-
-				-- refresh pinned bufnr when entering a pinned file
-				if type(M._path_for_buf) == "function" and type(M._pin_slot_for_path) == "function" then
-					local path = M._path_for_buf(buf)
-					local slot = path and M._pin_slot_for_path(path) or nil
-					if slot and M._pins[slot] then
-						M._pins[slot].bufnr = buf
-					end
-				end
-
-				-- normal navigation: commit immediately
-				if type(M._clear_preview) == "function" then
-					M._clear_preview()
-				end
-				M._record(buf)
+				navigation.enter(args.buf)
 			end,
 		})
-
-		-- Commit preview only after real user input (not internal CursorMoved)
 		vim.api.nvim_create_autocmd(M.touch_events, {
 			group = M._augroup,
-			callback = function()
-				if not M.commit_on_touch then
-					return
-				end
-				if not M._preview_active then
-					return
-				end
-
-				local cur = vim.api.nvim_get_current_buf()
-				if cur ~= M._preview_buf then
-					return
-				end
-				if type(M._buf_real) == "function" and not M._buf_real(cur) then
-					return
-				end
-
-				-- If no keypress happened since we entered preview, ignore (internal events)
-				if M._key_counter == M._preview_key_counter_at_enter then
-					return
-				end
-
-				-- If the last keypress is one of our cycle keys, ignore (just cycling)
-				if M.cycle_keys[M._last_key] then
-					return
-				end
-
-				-- Otherwise, user actually did something => commit
-				if type(M._clear_preview) == "function" then
-					M._clear_preview()
-				end
-				M._record(cur)
-			end,
+			callback = navigation.touch,
 		})
-
-		-- If we leave preview buffer without committing, discard preview state
 		vim.api.nvim_create_autocmd("BufLeave", {
 			group = M._augroup,
 			callback = function(args)
-				if not M.commit_on_touch then
-					return
-				end
-				if not M._preview_active then
-					return
-				end
-				if args.buf ~= M._preview_buf then
-					return
-				end
-				if type(M._clear_preview) == "function" then
-					M._clear_preview()
-				end
+				navigation.leave(args.buf)
 			end,
 		})
-
 		vim.api.nvim_create_autocmd("BufWipeout", {
 			group = M._augroup,
 			callback = function(args)
-				-- keep pins even if the underlying buffer is wiped
-				if args and args.buf then
-					for _, pin in pairs(M._pins) do
-						if pin and pin.bufnr == args.buf then
-							pin.bufnr = nil
-						end
-					end
-				end
-				if type(M._prune) == "function" then
-					M._prune()
-				end
-				if M._preview_active and not U.buf_valid(M._preview_buf) then
-					if type(M._clear_preview) == "function" then
-						M._clear_preview()
-					end
-				end
+				navigation.wipe(args.buf)
 			end,
 		})
 
@@ -372,22 +255,14 @@ return function(M, U)
 		})
 
 		vim.api.nvim_create_user_command("MRURing", function()
-			if type(M._prune) == "function" then
-				M._prune()
-			end
 			local out = {}
-			for i, path in ipairs(M._list) do
-				if type(path) == "string" and path ~= "" then
-					local b = vim.fn.bufnr(path, false)
-					local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) or nil
-					local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
-					local here = (i == M._pos) and "  <==" or ""
-					if b and b > 0 and U.buf_valid(b) then
-						table.insert(out, string.format("%3d  %s  #%d  %s%s", i, pin_tag, b, path, here))
-					else
-						table.insert(out, string.format("%3d  %s  (closed)  %s%s", i, pin_tag, path, here))
-					end
-				end
+			for i, item in ipairs(M.entries()) do
+				local path, b = item.path, item.bufnr
+				local pin_slot = M._pin_slot_for_path(path)
+				local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
+				local here = (M._find_index(path) == M._pos) and "  <==" or ""
+				local state = b and ("#%d"):format(b) or "(closed)"
+				out[#out + 1] = string.format("%3d  %s  %s  %s%s", i, pin_tag, state, path, here)
 			end
 			vim.notify(#out > 0 and table.concat(out, "\n") or "MRU ring: empty")
 		end, { force = true })

@@ -107,7 +107,27 @@ return function(M, U)
 		end
 	end
 
-	local function prune()
+	local function open_buffers()
+		local wanted = {}
+		for _, entry in ipairs(M._list) do
+			local path = type(entry) == "number" and path_for_buf(entry) or entry
+			if path then
+				wanted[path] = true
+			end
+		end
+		local buffers = {}
+		for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+			local path = vim.api.nvim_buf_get_name(buf)
+			-- Names are cheap; inspect options only for the capped ring's entries.
+			if wanted[path] and buf_real(buf) then
+				buffers[path] = buf
+			end
+		end
+		return buffers
+	end
+
+	local function prune(buffers)
+		buffers = buffers or open_buffers()
 		local new = {}
 		local new_pos = 1
 		local seen = {}
@@ -118,9 +138,9 @@ return function(M, U)
 				path = path_for_buf(entry)
 			end
 			if type(path) == "string" and path ~= "" and not seen[path] then
-				local b = vim.fn.bufnr(path, false)
+				local b = buffers[path]
 				local keep = false
-				if b and b > 0 and U.buf_valid(b) and buf_real(b) then
+				if b then
 					keep = true
 				elseif is_pinned_path(path) then
 					keep = true
@@ -156,12 +176,6 @@ return function(M, U)
 			end
 		end
 		return nil
-	end
-
-	local function clear_preview()
-		M._preview_active = false
-		M._preview_buf = nil
-		M._preview_key_counter_at_enter = 0
 	end
 
 	local function mru_persist_path()
@@ -206,11 +220,7 @@ return function(M, U)
 		if not w_ok or w_res ~= 0 then
 			if not M._mru_persist_warned then
 				M._mru_persist_warned = true
-				pcall(
-					vim.notify,
-					("MRU: failed to write MRU persistence file: %s"):format(file),
-					vim.log.levels.WARN
-				)
+				pcall(vim.notify, ("MRU: failed to write MRU persistence file: %s"):format(file), vim.log.levels.WARN)
 			end
 		end
 	end
@@ -275,6 +285,24 @@ return function(M, U)
 		end
 	end
 
+	-- One authoritative view for cycling, menu, picker, and integrations.
+	-- Scope filters the view, never the retained history or persisted pins.
+	function M.entries()
+		local buffers = open_buffers()
+		prune(buffers)
+		local prefix
+		if M.scope == "cwd" then
+			prefix = U.normalize_path(vim.fn.getcwd()):gsub("/+$", "") .. "/"
+		end
+		local items = {}
+		for _, path in ipairs(M._list) do
+			if not prefix or path:sub(1, #prefix) == prefix then
+				items[#items + 1] = { path = path, bufnr = buffers[path] }
+			end
+		end
+		return items
+	end
+
 	-- expose internal helpers for other modules
 	M._should_ignore = should_ignore
 	M._buf_real = buf_real
@@ -284,7 +312,6 @@ return function(M, U)
 	M._enforce_max = enforce_max
 	M._prune = prune
 	M._find_index = find_index
-	M._clear_preview = clear_preview
 	M._save_mru = save_mru
 	M._load_mru = load_mru
 	M._bootstrap_mru = function()
@@ -302,9 +329,6 @@ return function(M, U)
 
 	-- ========= public: MRU core =========
 	function M._record(buf)
-		if M._nav_lock then
-			return
-		end
 		local path = path_for_buf(buf)
 		if not path then
 			return
@@ -320,143 +344,5 @@ return function(M, U)
 		M._pos = 1
 
 		enforce_max()
-	end
-
-	local function goto_path(path, target_pos, as_preview)
-		if type(path) ~= "string" or path == "" then
-			return false
-		end
-
-		M._nav_lock = true
-		if target_pos then
-			M._pos = target_pos
-		end
-		local ok
-		local b = vim.fn.bufnr(path, false)
-		if not (b and b > 0 and U.buf_valid(b)) then
-			pcall(vim.cmd, ("badd %s"):format(vim.fn.fnameescape(path)))
-			b = vim.fn.bufnr(path, false)
-		end
-		if b and b > 0 and U.buf_valid(b) then
-			ok = pcall(vim.cmd, ("buffer %d"):format(b))
-			normalize_file_buffer(b)
-		else
-			ok = pcall(vim.cmd, ("edit %s"):format(vim.fn.fnameescape(path)))
-			if ok then
-				normalize_file_buffer(vim.api.nvim_get_current_buf())
-			end
-		end
-		M._nav_lock = false
-
-		if ok and as_preview then
-			M._preview_active = true
-			M._preview_buf = vim.api.nvim_get_current_buf()
-			M._preview_key_counter_at_enter = M._key_counter
-		end
-
-		return ok
-	end
-
-	function M.prev()
-		if M._menu and M._menu.list_win and vim.api.nvim_win_is_valid(M._menu.list_win) then
-			local target_win = M._menu.origin_win
-			if type(M._close_menu) == "function" then
-				M._close_menu()
-			end
-			if target_win and vim.api.nvim_win_is_valid(target_win) then
-				pcall(vim.api.nvim_set_current_win, target_win)
-			end
-		end
-
-		prune()
-		if #M._list == 0 then
-			vim.notify("MRU: nothing to cycle", vim.log.levels.INFO)
-			return
-		end
-		if #M._list == 1 then
-			goto_path(M._list[1], 1, M.commit_on_touch)
-			return
-		end
-
-		local cur = vim.api.nvim_get_current_buf()
-		local cur_path = path_for_buf(cur)
-		local idx = cur_path and find_index(cur_path) or nil
-		if not idx then
-			-- If current buffer isn't in the ring (e.g. dashboard / empty buffer /
-			-- plugin loaded after initial BufEnter), jump to most recent.
-			goto_path(M._list[1], 1, M.commit_on_touch)
-			return
-		end
-		if idx ~= M._pos then
-			M._pos = idx
-		end
-
-		local tries = 0
-		repeat
-			M._pos = M._pos + 1
-			if M._pos > #M._list then
-				M._pos = 1
-			end
-			local path = M._list[M._pos]
-			if path and path ~= cur_path then
-				if goto_path(path, M._pos, M.commit_on_touch) then
-					return
-				end
-			end
-			tries = tries + 1
-		until tries >= #M._list
-
-		vim.notify("MRU: no valid target", vim.log.levels.INFO)
-	end
-
-	function M.next()
-		if M._menu and M._menu.list_win and vim.api.nvim_win_is_valid(M._menu.list_win) then
-			local target_win = M._menu.origin_win
-			if type(M._close_menu) == "function" then
-				M._close_menu()
-			end
-			if target_win and vim.api.nvim_win_is_valid(target_win) then
-				pcall(vim.api.nvim_set_current_win, target_win)
-			end
-		end
-
-		prune()
-		if #M._list == 0 then
-			vim.notify("MRU: nothing to cycle", vim.log.levels.INFO)
-			return
-		end
-		if #M._list == 1 then
-			goto_path(M._list[1], 1, M.commit_on_touch)
-			return
-		end
-
-		local cur = vim.api.nvim_get_current_buf()
-		local cur_path = path_for_buf(cur)
-		local idx = cur_path and find_index(cur_path) or nil
-		if not idx then
-			-- If current buffer isn't in the ring, jump to most recent.
-			goto_path(M._list[1], 1, M.commit_on_touch)
-			return
-		end
-		if idx ~= M._pos then
-			M._pos = idx
-		end
-
-		local tries = 0
-		repeat
-			M._pos = M._pos - 1
-			if M._pos < 1 then
-				M._pos = #M._list
-			end
-			local path = M._list[M._pos]
-			if path and path ~= cur_path then
-				if goto_path(path, M._pos, M.commit_on_touch) then
-					return
-				end
-			end
-			tries = tries + 1
-		until tries >= #M._list
-
-		vim.notify("MRU: no valid target", vim.log.levels.INFO)
 	end
 end

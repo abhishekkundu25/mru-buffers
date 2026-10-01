@@ -235,24 +235,7 @@ return function(M, U)
 	end
 
 	local function mru_items()
-		if type(M._prune) == "function" then
-			M._prune()
-		end
-
-		local items = {}
-		for _, path in ipairs(M._list) do
-			if type(path) == "string" and path ~= "" then
-				local b = vim.fn.bufnr(path, false)
-				local is_real = b and b > 0 and U.buf_valid(b) and type(M._buf_real) == "function" and M._buf_real(b)
-				local pinned = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) ~= nil
-				if is_real then
-					table.insert(items, { path = path, bufnr = b })
-				elseif pinned or M.keep_closed == true then
-					table.insert(items, { path = path, bufnr = nil })
-				end
-			end
-		end
-		return items
+		return M.entries()
 	end
 
 	local function render_menu(list_buf, list_win, items)
@@ -383,7 +366,14 @@ return function(M, U)
 			vim.api.nvim_buf_add_highlight(list_buf, M._ui_ns, pin_hl, i - 1, 4, 7)
 
 			if m.icon_len > 0 and m.icon_hl then
-				vim.api.nvim_buf_add_highlight(list_buf, M._ui_ns, m.icon_hl, i - 1, m.icon_col, m.icon_col + m.icon_len)
+				vim.api.nvim_buf_add_highlight(
+					list_buf,
+					M._ui_ns,
+					m.icon_hl,
+					i - 1,
+					m.icon_col,
+					m.icon_col + m.icon_len
+				)
 			end
 
 			local name_hl = m.pin_slot and "MRUBuffersPinnedName" or "MRUBuffersName"
@@ -623,8 +613,8 @@ return function(M, U)
 				if not (M._menu.list_win and vim.api.nvim_win_is_valid(M._menu.list_win)) then
 					return
 				end
-				local fresh = mru_items()
-				fn(fresh)
+				-- Act on the displayed snapshot so an event cannot change row identity.
+				fn(M._menu.items or {})
 			end
 		end
 
@@ -642,25 +632,8 @@ return function(M, U)
 				if target_win and vim.api.nvim_win_is_valid(target_win) then
 					pcall(vim.api.nvim_set_current_win, target_win)
 				end
-				if it.bufnr and U.buf_valid(it.bufnr) then
-					vim.cmd(("buffer %d"):format(it.bufnr))
-					if type(M._normalize_file_buffer) == "function" then
-						M._normalize_file_buffer(it.bufnr)
-					end
-				else
-					pcall(vim.cmd, ("badd %s"):format(vim.fn.fnameescape(it.path)))
-					local b = vim.fn.bufnr(it.path, false)
-					if b and b > 0 and U.buf_valid(b) then
-						vim.cmd(("buffer %d"):format(b))
-						if type(M._normalize_file_buffer) == "function" then
-							M._normalize_file_buffer(b)
-						end
-					else
-						vim.cmd(("edit %s"):format(vim.fn.fnameescape(it.path)))
-						if type(M._normalize_file_buffer) == "function" then
-							M._normalize_file_buffer(vim.api.nvim_get_current_buf())
-						end
-					end
+				if not M._navigation.open(it, false) then
+					vim.notify("MRU: failed to open entry", vim.log.levels.WARN)
 				end
 			end),
 			{ buffer = list_buf, silent = true }

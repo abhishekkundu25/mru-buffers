@@ -14,6 +14,7 @@ M._default_keymaps = DEFAULT_KEYMAPS
 
 -- ========= config/state =========
 M.max = 50
+M.scope = "global"
 
 -- Preview mode: buffers entered via cycle keys are NOT committed until user "uses" them.
 M.commit_on_touch = true
@@ -23,7 +24,6 @@ M.touch_events = { "CursorMoved", "InsertEnter", "TextChanged" }
 
 M._list = {} -- MRU unique ring of file paths, most-recent first
 M._pos = 1 -- current position in ring (1 = most recent)
-M._nav_lock = false
 
 M.keymaps = vim.deepcopy(DEFAULT_KEYMAPS)
 
@@ -35,21 +35,6 @@ M.keep_closed = false
 -- This is configured via `keep_closed = { persist = true }` in `setup()`.
 M.keep_closed_persist = false
 M.keep_closed_file = nil
-
--- Preview/commit state
-M._preview_active = false
-M._preview_buf = nil
-M._preview_key_counter_at_enter = 0
-
--- Key tracking (to distinguish real movement vs internal cursor events)
-M._key_counter = 0
-M._last_key = ""
-M._key_ns = nil
-
--- Telescope suppression (cancel should not reorder MRU)
-M._ui_active = false
-M._ui_origin_buf = nil
-M._ui_origin_pos = nil
 
 -- Pin slots (1..pin_slots)
 M.pin_slots = 9
@@ -112,6 +97,7 @@ M._augroup = nil
 local U = require("mru-buffers.util")
 require("mru-buffers.core")(M, U)
 require("mru-buffers.pins")(M, U)
+require("mru-buffers.navigation")(M, U)
 require("mru-buffers.git")(M, U)
 require("mru-buffers.ui")(M, U)
 require("mru-buffers.telescope")(M, U)

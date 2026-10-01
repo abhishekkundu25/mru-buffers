@@ -179,61 +179,8 @@ return function(M, U)
 			return
 		end
 
-		local origin_win = nil
-		if M._menu and M._menu.list_win and vim.api.nvim_win_is_valid(M._menu.list_win) then
-			origin_win = M._menu.origin_win
-			if type(M._close_menu) == "function" then
-				M._close_menu()
-			end
-			if origin_win and vim.api.nvim_win_is_valid(origin_win) then
-				pcall(vim.api.nvim_set_current_win, origin_win)
-			end
-		end
-
-		local function go()
-			-- If we still have a valid bufnr, use it.
-			if pin.bufnr and U.buf_valid(pin.bufnr) then
-				vim.cmd(("buffer %d"):format(pin.bufnr))
-				if type(M._normalize_file_buffer) == "function" then
-					M._normalize_file_buffer(pin.bufnr)
-				end
-				return true
-			end
-
-			-- Try to find an existing buffer for this path.
-			local existing = vim.fn.bufnr(path, false)
-			if existing and existing > 0 and U.buf_valid(existing) then
-				pin.bufnr = existing
-				vim.cmd(("buffer %d"):format(existing))
-				if type(M._normalize_file_buffer) == "function" then
-					M._normalize_file_buffer(existing)
-				end
-				return true
-			end
-
-			-- Reopen from disk as a normal listed buffer.
-			pcall(vim.cmd, ("badd %s"):format(vim.fn.fnameescape(path)))
-			local b = vim.fn.bufnr(path, false)
-			if b and b > 0 and U.buf_valid(b) then
-				pin.bufnr = b
-				vim.cmd(("buffer %d"):format(b))
-				if type(M._normalize_file_buffer) == "function" then
-					M._normalize_file_buffer(b)
-				end
-				return true
-			end
-
-			local ok = pcall(vim.cmd, ("edit %s"):format(vim.fn.fnameescape(path)))
-			if ok and type(M._normalize_file_buffer) == "function" then
-				M._normalize_file_buffer(vim.api.nvim_get_current_buf())
-			end
-			return ok
-		end
-
-		local ok = pcall(go)
-		if not ok then
+		if not M._navigation.open({ path = path, bufnr = pin.bufnr }, false) then
 			vim.notify(("MRU: failed to open pin %d"):format(slot), vim.log.levels.WARN)
 		end
 	end
 end
-

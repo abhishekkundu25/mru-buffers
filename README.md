@@ -59,6 +59,12 @@ Call `require("mru-buffers").setup()` once (usually from your plugin manager). A
   - `:MRURing`: print the ring in `vim.notify`
 - Lua helpers: `require("mru-buffers").prev()`, `.next()`, `.open_menu()`, etc. if you want to create custom maps or integrate elsewhere.
 
+### Current-directory history
+
+Use `setup({ scope = "cwd" })` to show only files inside Neovim's current working directory (including subdirectories). Window-local and tab-local working directories are respected. Changing directories changes the view; it does not delete global history or persisted pins. Explicit pin jumps can still open a file outside the current directory.
+
+`require("mru-buffers").entries()` returns the current view in MRU order, with `{ path, bufnr }` entries (`bufnr` is absent for closed files). Both UIs and cycling consume this same view.
+
 ### Preview mode
 
 Cycling uses preview semantics by default: buffers that you jump to via your cycle keys (defaults: `[b` / `]b`) do not get committed to the front of the MRU list until you actually touch them (insert, move, edit). Internal cursor events and repeated cycle presses are ignored so the ring stays stable while you browse around.
@@ -78,6 +84,7 @@ In the menu:
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
+| `scope` | `"global"`/`"cwd"` | `"global"` | Filter cycling, menu, Telescope, and `:MRURing` to the current working directory and its descendants with `"cwd"`; retains history and pins from other directories. |
 | `max` | integer | `50` | Maximum number of entries to keep. |
 | `keep_closed` | boolean/table | `false` | Keep closed (non-pinned) entries in the MRU ring; set `{ persist = true }` to persist the ring between Neovim sessions (defaults to `stdpath("data") .. "/mru-buffers-mru.json"`). |
 | `commit_on_touch` | boolean | `true` | If `false`, buffers are committed immediately instead of waiting for a touch event. |
@@ -206,10 +213,20 @@ The Telescope picker also respects your Telescope defaults like `path_display` a
 
 - `lua/mru-buffers/init.lua` exposes `require("mru-buffers")` and assembles modules.
 - `lua/mru-buffers/core.lua` MRU ring + cycling logic.
+- `lua/mru-buffers/navigation.lua` private preview/cancel state, navigation, and touch commits.
 - `lua/mru-buffers/pins.lua` pins + persistence.
 - `lua/mru-buffers/ui.lua` floating menu UI.
 - `lua/mru-buffers/setup.lua` `setup()`, autocmds, user commands, keymaps.
 - `lua/mru/buffers.lua` is a compatibility wrapper for `require("mru.buffers")`.
+
+Run isolated syntax, behavior, and cross-session persistence checks:
+
+```sh
+python3 tests/run.py
+python3 tests/run.py benchmark
+```
+
+The runner isolates Neovim state in temporary directories. If Telescope and Plenary are installed under `~/.local/share/nvim/lazy` (or `MRU_TEST_PLUGINS`), it also checks the real picker. Benchmarks use 80 entries, a 1,000-buffer stress case, seven batches, and report median/max batch means; Git and icons are disabled to isolate MRU work. They are measurements, not hard timing gates.
 
 Contributions and bug reports are welcome once the repository is published.
 
