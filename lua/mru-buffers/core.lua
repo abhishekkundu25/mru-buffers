@@ -179,18 +179,7 @@ return function(M, U)
 	end
 
 	local function mru_persist_path()
-		if type(M.keep_closed_file) == "string" and M.keep_closed_file ~= "" then
-			return M.keep_closed_file
-		end
-		return vim.fn.stdpath("data") .. "/mru-buffers-mru.json"
-	end
-
-	local function mru_legacy_persist_path()
-		-- Backwards compat: some versions stored MRU in stdpath("state").
-		if type(M.keep_closed_file) == "string" and M.keep_closed_file ~= "" then
-			return nil
-		end
-		return vim.fn.stdpath("state") .. "/mru-buffers-mru.json"
+		return M._directory_file(M.keep_closed_file, "mru")
 	end
 
 	local function save_mru()
@@ -232,12 +221,7 @@ return function(M, U)
 
 		local file = mru_persist_path()
 		if vim.fn.filereadable(file) ~= 1 then
-			local legacy = mru_legacy_persist_path()
-			if legacy and vim.fn.filereadable(legacy) == 1 then
-				file = legacy
-			else
-				return
-			end
+			return
 		end
 
 		local r_ok, lines = pcall(vim.fn.readfile, file)
@@ -259,7 +243,7 @@ return function(M, U)
 		for _, path in ipairs(list) do
 			if type(path) == "string" and path ~= "" then
 				path = U.normalize_path(path)
-				if path and not seen[path] then
+				if path and M._in_directory(path) and not seen[path] then
 					-- keep only existing files; non-existent paths aren't useful
 					if vim.fn.filereadable(path) == 1 then
 						seen[path] = true
@@ -278,27 +262,16 @@ return function(M, U)
 		end
 
 		enforce_max()
-
-		-- If we loaded from the legacy location, save once to the new default.
-		if file == mru_legacy_persist_path() then
-			save_mru()
-		end
 	end
 
-	-- One authoritative view for cycling, menu, picker, and integrations.
-	-- Scope filters the view, never the retained history or persisted pins.
+	-- One directory-local view for cycling, menu, picker, and integrations.
 	function M.entries()
+		M._activate_directory()
 		local buffers = open_buffers()
 		prune(buffers)
-		local prefix
-		if M.scope == "cwd" then
-			prefix = U.normalize_path(vim.fn.getcwd()):gsub("/+$", "") .. "/"
-		end
 		local items = {}
 		for _, path in ipairs(M._list) do
-			if not prefix or path:sub(1, #prefix) == prefix then
-				items[#items + 1] = { path = path, bufnr = buffers[path] }
-			end
+			items[#items + 1] = { path = path, bufnr = buffers[path] }
 		end
 		return items
 	end
@@ -329,8 +302,9 @@ return function(M, U)
 
 	-- ========= public: MRU core =========
 	function M._record(buf)
+		M._activate_directory()
 		local path = path_for_buf(buf)
-		if not path then
+		if not path or not M._in_directory(path) then
 			return
 		end
 

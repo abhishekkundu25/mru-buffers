@@ -97,10 +97,6 @@ return function(M, U)
 			end
 		end
 
-		if opts.scope ~= nil then
-			assert(opts.scope == "global" or opts.scope == "cwd", "MRU: scope must be global or cwd")
-			M.scope = opts.scope
-		end
 		M.max = opts.max or M.max
 		if opts.keep_closed ~= nil then
 			if type(opts.keep_closed) == "table" then
@@ -112,7 +108,7 @@ return function(M, U)
 				M.keep_closed = enabled == true
 				M.keep_closed_persist = opts.keep_closed.persist == true
 				if opts.keep_closed.file ~= nil then
-					M.keep_closed_file = opts.keep_closed.file
+					M.keep_closed_file = U.normalize_path(opts.keep_closed.file)
 				end
 				if M.keep_closed_persist == true then
 					M.keep_closed = true
@@ -139,7 +135,7 @@ return function(M, U)
 			M.persist_pins = opts.persist_pins == true
 		end
 		if opts.persist_file ~= nil then
-			M.persist_file = opts.persist_file
+			M.persist_file = U.normalize_path(opts.persist_file)
 		end
 
 		update_cycle_keys(opts.cycle_keys)
@@ -175,17 +171,13 @@ return function(M, U)
 			end,
 		})
 
-		if M.keep_closed == true and M.keep_closed_persist == true and type(M._load_mru) == "function" then
-			M._load_mru()
-		end
-
-		if M.persist_pins and type(M._load_pins) == "function" then
-			M._load_pins()
-		end
-
-		if type(M._bootstrap_mru) == "function" then
-			M._bootstrap_mru()
-		end
+		M._activate_directory()
+		vim.api.nvim_create_autocmd({ "DirChanged", "WinEnter", "TabEnter" }, {
+			group = M._augroup,
+			callback = function()
+				M._activate_directory()
+			end,
+		})
 
 		if
 			(M.persist_pins and type(M._save_pins) == "function")

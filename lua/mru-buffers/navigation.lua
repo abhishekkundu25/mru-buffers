@@ -20,6 +20,7 @@ return function(M, U)
 	end
 
 	function N.enter(buf)
+		M._activate_directory()
 		if locked then
 			return
 		end
@@ -43,6 +44,7 @@ return function(M, U)
 	end
 
 	function N.touch()
+		M._activate_directory()
 		local buf = vim.api.nvim_get_current_buf()
 		if locked or not M.commit_on_touch or buf ~= preview_buf then
 			return
@@ -71,9 +73,13 @@ return function(M, U)
 		end
 	end
 
-	function N.configure()
+	function N.reset()
 		clear_preview()
 		picker_origin, picker_pos = nil, nil
+	end
+
+	function N.configure()
+		N.reset()
 		if key_ns then
 			return
 		end
@@ -105,6 +111,8 @@ return function(M, U)
 		locked = true
 		local ok = pcall(function()
 			restore_menu_origin()
+			M._activate_directory()
+			assert(M._in_directory(item.path), "MRU: entry is outside the current directory")
 			local buf = item.bufnr
 			if not U.buf_valid(buf) or vim.api.nvim_buf_get_name(buf) ~= item.path then
 				buf = vim.fn.bufnr(item.path, false)

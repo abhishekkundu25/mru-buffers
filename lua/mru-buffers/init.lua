@@ -14,7 +14,6 @@ M._default_keymaps = DEFAULT_KEYMAPS
 
 -- ========= config/state =========
 M.max = 50
-M.scope = "global"
 
 -- Preview mode: buffers entered via cycle keys are NOT committed until user "uses" them.
 M.commit_on_touch = true
@@ -98,6 +97,7 @@ local U = require("mru-buffers.util")
 require("mru-buffers.core")(M, U)
 require("mru-buffers.pins")(M, U)
 require("mru-buffers.navigation")(M, U)
+require("mru-buffers.directory")(M, U)
 require("mru-buffers.git")(M, U)
 require("mru-buffers.ui")(M, U)
 require("mru-buffers.telescope")(M, U)

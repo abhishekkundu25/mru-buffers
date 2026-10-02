@@ -1,12 +1,12 @@
 # mru-buffers
 
-Harpoon-inspired MRU switching for Neovim that keeps a unique ring of recently used buffers and lets you preview entries before committing to them. It ships with a minimal UI, safe defaults, and is easy to wire into any plugin manager such as `lazy.nvim`.
+Harpoon-inspired MRU switching for Neovim that keeps a separate ring of recently used buffers for each working directory and lets you preview entries before committing to them. It ships with a minimal UI, safe defaults, and is easy to wire into any plugin manager such as `lazy.nvim`.
 
 ## Features
 
-- Maintains a capped MRU ring that ignores special buffers (Telescope, help, terminals, etc.)
+- Maintains a capped MRU ring per working directory that ignores special buffers (Telescope, help, terminals, etc.)
 - Preview mode lets you cycle through buffers without reordering the ring until you actually edit or move
-- Pin up to 9 files; pinned entries stay in the MRU ring even after `:bd`/wipe and can be reopened
+- Pin up to 9 files per working directory; pinned entries stay in the MRU ring even after `:bd`/wipe and can be reopened
 - Configurable keymaps, ignore rules, and "touch" events that trigger commits
 
 ## Requirements
@@ -21,7 +21,6 @@ Harpoon-inspired MRU switching for Neovim that keeps a unique ring of recently u
 {
   "abhishekkundu25/mru-buffers",
   event = "VeryLazy",
-  version = "0.8",
   config = function()
     require("mru-buffers").setup({
       -- optional configuration
@@ -61,7 +60,13 @@ Call `require("mru-buffers").setup()` once (usually from your plugin manager). A
 
 ### Current-directory history
 
-Use `setup({ scope = "cwd" })` to show only files inside Neovim's current working directory (including subdirectories). Window-local and tab-local working directories are respected. Changing directories changes the view; it does not delete global history or persisted pins. Explicit pin jumps can still open a file outside the current directory.
+MRU history and pins always belong to Neovim's current working directory, including its descendants. Window-local (`:lcd`) and tab-local (`:tcd`) working directories are respected. Each directory has its own history limit and pin slots 1..9. Changing directories restores that directory's state; pins cannot open or record files outside it. Newly visited directories are seeded with eligible buffers already open inside them.
+
+No scope option is needed. Menus and Telescope use the originating editor window's directory.
+
+When persistence is enabled, each directory uses separate files under `stdpath("data") .. "/mru-buffers/<directory-hash>/"`: `mru.json` and `pins.json`. Directory hashes use the normalized absolute working directory. Custom `keep_closed.file` and `persist_file` names receive the directory hash before their extension (for example, `/tmp/pins.json` becomes `/tmp/pins-<directory-hash>.json`). Relative custom filenames are resolved once against the working directory at setup. State is saved when leaving a directory and on exit.
+
+Older shared persistence files are left untouched and are no longer loaded. Re-pin files once in each directory after upgrading.
 
 `require("mru-buffers").entries()` returns the current view in MRU order, with `{ path, bufnr }` entries (`bufnr` is absent for closed files). Both UIs and cycling consume this same view.
 
@@ -84,9 +89,8 @@ In the menu:
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `scope` | `"global"`/`"cwd"` | `"global"` | Filter cycling, menu, Telescope, and `:MRURing` to the current working directory and its descendants with `"cwd"`; retains history and pins from other directories. |
-| `max` | integer | `50` | Maximum number of entries to keep. |
-| `keep_closed` | boolean/table | `false` | Keep closed (non-pinned) entries in the MRU ring; set `{ persist = true }` to persist the ring between Neovim sessions (defaults to `stdpath("data") .. "/mru-buffers-mru.json"`). |
+| `max` | integer | `50` | Maximum number of entries per directory (pins are retained). |
+| `keep_closed` | boolean/table | `false` | Keep closed (non-pinned) entries in the MRU ring; set `{ persist = true }` to persist the ring between Neovim sessions (separate `mru.json` per directory). |
 | `commit_on_touch` | boolean | `true` | If `false`, buffers are committed immediately instead of waiting for a touch event. |
 | `touch_events` | table | `{ "CursorMoved", "InsertEnter", "TextChanged" }` | Autocommands that count as a "touch". |
 | `ignore` | table | (built-in) | Extend the built-in ignore lists (`buftype`, `filetype`, `name_patterns`). Uses `vim.tbl_deep_extend`. |
@@ -95,7 +99,7 @@ In the menu:
 | `git` | table | (built-in) | Optional git diffstat column (`+`/`-` line counts) for MRU menu and Telescope picker. Disabled by default. |
 | `ui` | table | (built-in) | MRU menu UI options (see below). |
 | `persist_pins` | boolean | `false` | Persist pinned slots to disk and reload on startup. |
-| `persist_file` | string | `stdpath("data") .. "/mru-buffers-pins.json"` | Override the persistence file path. |
+| `persist_file` | string | per-directory `pins.json` | Override the base pin persistence filename; the directory hash is added automatically. |
 
 ### UI options (`ui`)
 
@@ -212,7 +216,8 @@ The Telescope picker also respects your Telescope defaults like `path_display` a
 ## Development
 
 - `lua/mru-buffers/init.lua` exposes `require("mru-buffers")` and assembles modules.
-- `lua/mru-buffers/core.lua` MRU ring + cycling logic.
+- `lua/mru-buffers/core.lua` MRU ring + history persistence.
+- `lua/mru-buffers/directory.lua` directory state switching and persistence paths.
 - `lua/mru-buffers/navigation.lua` private preview/cancel state, navigation, and touch commits.
 - `lua/mru-buffers/pins.lua` pins + persistence.
 - `lua/mru-buffers/ui.lua` floating menu UI.

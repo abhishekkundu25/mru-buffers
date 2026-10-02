@@ -80,6 +80,7 @@ return function(M, U)
 	end
 
 	function M.telescope(opts)
+		M._picker_origin_win = vim.api.nvim_get_current_win()
 		opts = opts or {}
 
 		local ok_t, telescope = pcall(require, "telescope")

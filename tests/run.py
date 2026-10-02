@@ -22,19 +22,20 @@ with tempfile.TemporaryDirectory(prefix='mru-tests-') as name:
     else:
         env.pop('MRU_TEST_PLUGINS', None)
         print('Telescope not installed: optional adapter checks skipped.', flush=True)
-    def run(name, phase=None):
+    def run(name, phase=None, storage=None):
         args = ['nvim', '--headless', '-n', '-u', 'NONE', '-i', 'NONE', '-l', str(repo / 'tests' / (name + '.lua'))]
-        subprocess.run(args, cwd=repo, env=dict(env, MRU_TEST_PHASE=phase or ''), check=True)
+        subprocess.run(args, cwd=repo, env=dict(env, MRU_TEST_PHASE=phase or '', MRU_TEST_STORAGE=storage or ''), check=True)
     if suite in {'all', 'syntax'}:
         run('syntax')
     if suite in {'all', 'regression'}:
         run('regression')
     if suite in {'all', 'persistence'}:
-        for name in ('project/a.txt', 'other/b.txt'):
+        for name in ('project/a.txt', 'other/b.txt', 'other/d.txt'):
             target = tmp / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text('fixture\n')
-        run('persistence', 'save')
-        run('persistence', 'restore')
+        for storage in ('default', 'override', 'relative'):
+            run('persistence', 'save', storage)
+            run('persistence', 'restore', storage)
     if suite == 'benchmark':
         run('benchmark')

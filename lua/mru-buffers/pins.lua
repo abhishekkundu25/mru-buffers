@@ -32,9 +32,10 @@ return function(M, U)
 	end
 
 	local function pin_path(path, slot, bufnr)
+		M._activate_directory()
 		path = U.normalize_path(path)
 		slot = normalize_slot(slot)
-		if not path or not slot then
+		if not path or not slot or not M._in_directory(path) then
 			return false
 		end
 
@@ -57,10 +58,7 @@ return function(M, U)
 	end
 
 	local function persist_path()
-		if type(M.persist_file) == "string" and M.persist_file ~= "" then
-			return M.persist_file
-		end
-		return vim.fn.stdpath("data") .. "/mru-buffers-pins.json"
+		return M._directory_file(M.persist_file, "pins")
 	end
 
 	local function save_pins()
@@ -82,6 +80,7 @@ return function(M, U)
 		end
 
 		local file = persist_path()
+		pcall(vim.fn.mkdir, vim.fn.fnamemodify(file, ":h"), "p")
 		pcall(vim.fn.writefile, { encoded }, file)
 	end
 
@@ -124,6 +123,7 @@ return function(M, U)
 	M._load_pins = load_pins
 
 	function M.pin(slot)
+		M._activate_directory()
 		slot = normalize_slot(slot)
 		if not slot then
 			vim.notify(("MRU: pin slot must be 1-%d"):format(M.pin_slots), vim.log.levels.WARN)
@@ -142,12 +142,16 @@ return function(M, U)
 			return
 		end
 
-		pin_path(path, slot, cur)
+		if not pin_path(path, slot, cur) then
+			vim.notify("MRU: cannot pin a file outside the current directory", vim.log.levels.WARN)
+			return
+		end
 		save_pins()
 		vim.notify(("MRU: pinned %s to %d"):format(vim.fn.fnamemodify(path, ":~:."), slot), vim.log.levels.INFO)
 	end
 
 	function M.unpin(slot)
+		M._activate_directory()
 		slot = normalize_slot(slot)
 		if not slot then
 			vim.notify(("MRU: pin slot must be 1-%d"):format(M.pin_slots), vim.log.levels.WARN)
@@ -161,6 +165,7 @@ return function(M, U)
 	end
 
 	function M.jump(slot)
+		M._activate_directory()
 		slot = normalize_slot(slot)
 		if not slot then
 			vim.notify(("MRU: pin slot must be 1-%d"):format(M.pin_slots), vim.log.levels.WARN)

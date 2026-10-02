@@ -1,4 +1,5 @@
 vim.opt.rtp:prepend(assert(vim.env.MRU_REPO))
+vim.cmd.cd("/private/tmp")
 local M = require("mru-buffers")
 vim.notify = function() end
 M.setup({
@@ -13,6 +14,7 @@ for i = 1, 80 do
 	vim.api.nvim_buf_set_name(b, "/private/tmp/mru-benchmark/file-" .. i .. ".txt")
 	vim.api.nvim_set_current_buf(b)
 end
+assert(#M.entries() == 80, "benchmark must exercise 80 eligible entries")
 local uv = vim.uv or vim.loop
 local function bench(name, n, fn)
 	for _ = 1, 10 do
