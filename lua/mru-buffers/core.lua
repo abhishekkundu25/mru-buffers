@@ -21,12 +21,12 @@ return function(M, U)
 		end
 
 		local bt = vim.bo[buf].buftype or ""
-		if bt ~= "" and U.list_contains(M.ignore.buftype, bt) then
+		if bt ~= "" and vim.tbl_contains(M.ignore.buftype, bt) then
 			return true
 		end
 
 		local ft = vim.bo[buf].filetype or ""
-		if ft ~= "" and U.list_contains(M.ignore.filetype, ft) then
+		if ft ~= "" and vim.tbl_contains(M.ignore.filetype, ft) then
 			return true
 		end
 
@@ -77,12 +77,13 @@ return function(M, U)
 	end
 
 	local function is_pinned_path(path)
-		return type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) ~= nil
+		return M._pin_slot_for_path(path) ~= nil
 	end
 
+	-- Evicts the oldest unpinned entries; pins may keep the ring above `max`.
 	local function enforce_max()
 		while #M._list > M.max do
-			local removed = nil
+			local removed
 			for i = #M._list, 1, -1 do
 				if not is_pinned_path(M._list[i]) then
 					removed = i
@@ -94,26 +95,16 @@ return function(M, U)
 			end
 			table.remove(M._list, removed)
 			if removed < M._pos then
-				M._pos = math.max(1, M._pos - 1)
-			elseif removed == M._pos then
-				M._pos = math.min(M._pos, #M._list)
+				M._pos = M._pos - 1
 			end
 		end
-
-		if #M._list == 0 then
-			M._pos = 1
-		else
-			M._pos = math.min(M._pos, #M._list)
-		end
+		M._pos = math.max(1, math.min(M._pos, #M._list))
 	end
 
 	local function open_buffers()
 		local wanted = {}
-		for _, entry in ipairs(M._list) do
-			local path = type(entry) == "number" and path_for_buf(entry) or entry
-			if path then
-				wanted[path] = true
-			end
+		for _, path in ipairs(M._list) do
+			wanted[path] = true
 		end
 		local buffers = {}
 		for _, buf in ipairs(vim.api.nvim_list_bufs()) do
@@ -128,44 +119,19 @@ return function(M, U)
 
 	local function prune(buffers)
 		buffers = buffers or open_buffers()
-		local new = {}
-		local new_pos = 1
-		local seen = {}
-
-		for i, entry in ipairs(M._list) do
-			local path = entry
-			if type(entry) == "number" then
-				path = path_for_buf(entry)
-			end
-			if type(path) == "string" and path ~= "" and not seen[path] then
-				local b = buffers[path]
-				local keep = false
-				if b then
-					keep = true
-				elseif is_pinned_path(path) then
-					keep = true
-				elseif M.keep_closed == true then
-					-- Keep closed (non-pinned) entries in the MRU list so the ring
-					-- acts like a file history; still capped by `max`.
-					keep = true
-				end
-
-				if keep then
-					seen[path] = true
-					table.insert(new, path)
-					if i == M._pos then
-						new_pos = #new
-					end
+		local new, new_pos, seen = {}, 1, {}
+		for i, path in ipairs(M._list) do
+			-- Closed entries stay only when pinned or when `keep_closed` makes the
+			-- ring a file history; still capped by `max`.
+			if not seen[path] and (buffers[path] or is_pinned_path(path) or M.keep_closed) then
+				seen[path] = true
+				new[#new + 1] = path
+				if i == M._pos then
+					new_pos = #new
 				end
 			end
 		end
-
-		M._list = new
-		if #M._list == 0 then
-			M._pos = 1
-		else
-			M._pos = math.min(new_pos, #M._list)
-		end
+		M._list, M._pos = new, new_pos
 		enforce_max()
 	end
 
@@ -182,85 +148,34 @@ return function(M, U)
 		return M._directory_file(M.keep_closed_file, "mru")
 	end
 
+	local function persist_mru()
+		return M.keep_closed == true and M.keep_closed_persist == true
+	end
+
 	local function save_mru()
-		if not (M.keep_closed == true and M.keep_closed_persist == true) then
-			return
-		end
-
-		local out = { version = 1, list = {}, pos = tonumber(M._pos) or 1 }
-		for _, path in ipairs(M._list or {}) do
-			if type(path) == "string" and path ~= "" then
-				out.list[#out.list + 1] = path
-			end
-		end
-
-		local ok, encoded = pcall(U.json_encode, out)
-		if not ok or type(encoded) ~= "string" then
-			return
-		end
-
-		local file = mru_persist_path()
-		local dir = vim.fn.fnamemodify(file, ":h")
-		if dir and dir ~= "" then
-			pcall(vim.fn.mkdir, dir, "p")
-		end
-
-		local w_ok, w_res = pcall(vim.fn.writefile, { encoded }, file)
-		if not w_ok or w_res ~= 0 then
+		if persist_mru() and not U.write_json(mru_persist_path(), { version = 1, list = M._list, pos = M._pos }) then
 			if not M._mru_persist_warned then
 				M._mru_persist_warned = true
-				pcall(vim.notify, ("MRU: failed to write MRU persistence file: %s"):format(file), vim.log.levels.WARN)
+				vim.notify(("MRU: failed to write %s"):format(mru_persist_path()), vim.log.levels.WARN)
 			end
 		end
 	end
 
 	local function load_mru()
-		if not (M.keep_closed == true and M.keep_closed_persist == true) then
+		local decoded = persist_mru() and U.read_json(mru_persist_path())
+		if not (decoded and type(decoded.list) == "table") then
 			return
 		end
-
-		local file = mru_persist_path()
-		if vim.fn.filereadable(file) ~= 1 then
-			return
-		end
-
-		local r_ok, lines = pcall(vim.fn.readfile, file)
-		if not r_ok or type(lines) ~= "table" then
-			return
-		end
-		local decoded_ok, decoded = pcall(U.json_decode, table.concat(lines, "\n"))
-		if not decoded_ok or type(decoded) ~= "table" then
-			return
-		end
-
-		local list = decoded.list
-		if type(list) ~= "table" then
-			return
-		end
-
-		local new = {}
-		local seen = {}
-		for _, path in ipairs(list) do
-			if type(path) == "string" and path ~= "" then
-				path = U.normalize_path(path)
-				if path and M._in_directory(path) and not seen[path] then
-					-- keep only existing files; non-existent paths aren't useful
-					if vim.fn.filereadable(path) == 1 then
-						seen[path] = true
-						new[#new + 1] = path
-					end
-				end
+		local new, seen = {}, {}
+		for _, path in ipairs(decoded.list) do
+			path = type(path) == "string" and U.normalize_path(path)
+			-- Drop files that no longer exist or belong to another directory.
+			if path and not seen[path] and M._in_directory(path) and vim.fn.filereadable(path) == 1 then
+				seen[path] = true
+				new[#new + 1] = path
 			end
 		end
-
-		M._list = new
-		if #M._list == 0 then
-			M._pos = 1
-		else
-			local pos = tonumber(decoded.pos) or 1
-			M._pos = math.min(math.max(1, pos), #M._list)
-		end
-
+		M._list, M._pos = new, math.max(1, tonumber(decoded.pos) or 1)
 		enforce_max()
 	end
 
@@ -276,8 +191,45 @@ return function(M, U)
 		return items
 	end
 
+	local function entry_buf(item)
+		if U.buf_valid(item.bufnr) then
+			return item.bufnr
+		end
+		local buf = vim.fn.bufnr(item.path, false)
+		return U.buf_valid(buf) and buf or nil
+	end
+
+	-- Menu and Telescope `c`: delete an entry's buffer unless it has unsaved
+	-- changes. The delete runs in `win` because `nvim_buf_delete` misbehaves
+	-- when called from a floating menu or picker window.
+	local function close_if_saved(item, win)
+		local buf = entry_buf(item)
+		if not buf then
+			vim.notify("MRU: buffer already closed", vim.log.levels.INFO)
+			return false
+		end
+		if vim.bo[buf].modified then
+			vim.notify("MRU: buffer has unsaved changes", vim.log.levels.WARN)
+			return false
+		end
+		local function delete()
+			vim.api.nvim_buf_delete(buf, { force = false })
+		end
+		local ok
+		if win and vim.api.nvim_win_is_valid(win) then
+			ok = pcall(vim.api.nvim_win_call, win, delete)
+		else
+			ok = pcall(delete)
+		end
+		if not ok then
+			vim.notify("MRU: failed to close buffer", vim.log.levels.WARN)
+		end
+		return ok
+	end
+
 	-- expose internal helpers for other modules
-	M._should_ignore = should_ignore
+	M._entry_buf = entry_buf
+	M._close_if_saved = close_if_saved
 	M._buf_real = buf_real
 	M._is_telescope_ui = is_telescope_ui
 	M._normalize_file_buffer = normalize_file_buffer
@@ -291,7 +243,7 @@ return function(M, U)
 		-- If the plugin is loaded lazily (e.g. `event = "VeryLazy"`), the initial
 		-- `BufEnter` may have already happened before our autocmds were registered.
 		-- Seed the ring with the current buffer so the MRU isn't empty.
-		if type(M._list) == "table" and #M._list > 0 then
+		if #M._list > 0 then
 			return
 		end
 		local cur = vim.api.nvim_get_current_buf()

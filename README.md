@@ -96,7 +96,7 @@ In the menu:
 | `ignore` | table | (built-in) | Extend the built-in ignore lists (`buftype`, `filetype`, `name_patterns`). Uses `vim.tbl_deep_extend`. |
 | `keymaps` | table/`false`/`true` | (built-in) | Provide your own default maps (`{ menu, prev, next, pins = { set_prefix, jump_prefix } }`). Set to `false` to skip installing keymaps; set to `true` to reset to defaults. |
 | `cycle_keys` | table | (derived) | Extra keys that should be ignored while in preview mode. By default the plugin infers this from the configured `keymaps`. When `keymaps = false`, set this manually. |
-| `git` | table | (built-in) | Optional git diffstat column (`+`/`-` line counts) for MRU menu and Telescope picker. Disabled by default. |
+| `git` | table | (built-in) | Optional git diffstat column (`+`/`-` line counts) for MRU menu and Telescope picker. Disabled by default. Git runs in the background: the menu and picker open immediately with cached counts and update once `git diff` finishes (at most every `refresh_ms`). With both `include_staged` and `include_unstaged`, counts are against `HEAD`. |
 | `ui` | table | (built-in) | MRU menu UI options (see below). |
 | `persist_pins` | boolean | `false` | Persist pinned slots to disk and reload on startup. |
 | `persist_file` | string | per-directory `pins.json` | Override the base pin persistence filename; the directory hash is added automatically. |
@@ -110,7 +110,7 @@ Classic UI is the default. Enable the newer styling via `ui.fancy = true`.
 | `ui.width` | integer | `140` | Menu width (columns, clamped to screen). |
 | `ui.height` | integer | `12` | Menu height (rows, clamped to screen). |
 | `ui.border` | string | `"rounded"` | Floating window border style. |
-| `ui.title` | string | `"Recently used Buff"` | Window title. |
+| `ui.title` | string | `"MRU Buffers"` | Window title. |
 | `ui.fancy` | boolean | `false` | Enable enhanced styling (highlights, icons, richer footer). |
 | `ui.show_icons` | boolean | `true` | Show devicons when `ui.fancy = true` (requires `nvim-web-devicons`). |
 | `ui.show_count_in_title` | boolean | `true` | Append item count to title when `ui.fancy = true`. |
@@ -166,9 +166,11 @@ end, { desc = "MRU (Telescope)" })
 
 Inside the Telescope picker:
 - `<CR>` opens the selection
-- `x` (normal) / `<C-x>` (insert) pin/unpin selection
+- `x` (normal) / `<M-x>` (insert) pin/unpin selection
 - `X` (normal) pin from the top of the MRU list into free slots (1..9)
-- `c` (normal) / `<C-c>` (insert) close selection (only if saved)
+- `c` (normal) / `<M-c>` (insert) close selection (only if saved)
+
+The insert-mode keys use `<M-…>` so Telescope's own `<C-x>` (open in split) and `<C-c>` (close picker) keep working.
 
 The Telescope picker also respects your Telescope defaults like `path_display` and `color_devicons`.
 

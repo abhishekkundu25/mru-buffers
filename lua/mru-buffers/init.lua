@@ -18,7 +18,7 @@ M.max = 50
 -- Preview mode: buffers entered via cycle keys are NOT committed until user "uses" them.
 M.commit_on_touch = true
 
--- wowzser events (CursorMoved is fine once we gate it by real keypress)
+-- Events that commit a previewed buffer (CursorMoved is gated by real keypresses).
 M.touch_events = { "CursorMoved", "InsertEnter", "TextChanged" }
 
 M._list = {} -- MRU unique ring of file paths, most-recent first
@@ -54,10 +54,22 @@ M.git = {
 	column = {
 		add_prefix = "+",
 		del_prefix = "-",
-		cell_width = 5,
-		sep = " ",
 	},
 }
+
+-- MRU menu (classic by default; `fancy` adds icons, highlights, and a longer footer)
+M.ui = {
+	width = 140, -- columns (clamped to screen)
+	height = 12, -- rows (clamped to screen)
+	border = "rounded",
+	title = "MRU Buffers",
+	fancy = false,
+	show_icons = true, -- requires nvim-web-devicons
+	show_count_in_title = true,
+	show_footer = true,
+	modified_icon = " ●",
+}
+M._menu = {} -- open menu windows/buffers, origin_win, and displayed items
 
 -- Keys used for cycling (so we can ignore them in "touch" logic)
 M.cycle_keys = {}

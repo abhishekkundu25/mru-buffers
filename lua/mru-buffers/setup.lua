@@ -60,10 +60,10 @@ return function(M, U)
 		end, "MRU cycle next")
 
 		local pins = maps.pins
-		local defaults = M._default_keymaps
-		if pins ~= false and type(defaults) == "table" and type(defaults.pins) == "table" then
-			local set_prefix = type(pins) == "table" and pins.set_prefix or defaults.pins.set_prefix
-			local jump_prefix = type(pins) == "table" and pins.jump_prefix or defaults.pins.jump_prefix
+		if pins ~= false then
+			local defaults = M._default_keymaps.pins
+			local set_prefix = type(pins) == "table" and pins.set_prefix or defaults.set_prefix
+			local jump_prefix = type(pins) == "table" and pins.jump_prefix or defaults.jump_prefix
 
 			for i = 1, M.pin_slots do
 				if set_prefix and set_prefix ~= "" then
@@ -125,10 +125,10 @@ return function(M, U)
 			M.ignore = vim.tbl_deep_extend("force", M.ignore, opts.ignore)
 		end
 		if opts.ui then
-			M.ui = vim.tbl_deep_extend("force", M.ui or {}, opts.ui)
+			M.ui = vim.tbl_deep_extend("force", M.ui, opts.ui)
 		end
 		if opts.git then
-			M.git = vim.tbl_deep_extend("force", M.git or {}, opts.git)
+			M.git = vim.tbl_deep_extend("force", M.git, opts.git)
 		end
 
 		if opts.persist_pins ~= nil then
@@ -179,29 +179,18 @@ return function(M, U)
 			end,
 		})
 
-		if
-			(M.persist_pins and type(M._save_pins) == "function")
-			or (M.keep_closed == true and M.keep_closed_persist == true and type(M._save_mru) == "function")
-		then
-			vim.api.nvim_create_autocmd("VimLeavePre", {
-				group = M._augroup,
-				callback = function()
-					if M.persist_pins and type(M._save_pins) == "function" then
-						M._save_pins()
-					end
-					if M.keep_closed == true and M.keep_closed_persist == true and type(M._save_mru) == "function" then
-						M._save_mru()
-					end
-				end,
-			})
-		end
+		-- Both no-op unless their persistence option is enabled.
+		vim.api.nvim_create_autocmd("VimLeavePre", {
+			group = M._augroup,
+			callback = function()
+				M._save_pins()
+				M._save_mru()
+			end,
+		})
 
 		vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
 			group = M._augroup,
 			callback = function()
-				if type(M._refresh_menu) ~= "function" then
-					return
-				end
 				pcall(M._refresh_menu)
 			end,
 		})

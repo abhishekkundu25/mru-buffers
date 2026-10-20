@@ -43,8 +43,9 @@ return function(M, U)
 		M._record(buf)
 	end
 
+	-- Runs on every touch event (CursorMoved included), so bail out on the cheap
+	-- preview check before doing any work; `_record` activates the directory.
 	function N.touch()
-		M._activate_directory()
 		local buf = vim.api.nvim_get_current_buf()
 		if locked or not M.commit_on_touch or buf ~= preview_buf then
 			return

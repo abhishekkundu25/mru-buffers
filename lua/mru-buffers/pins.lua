@@ -48,11 +48,9 @@ return function(M, U)
 
 		M._pins[slot] = { path = path, bufnr = bufnr }
 
-		if type(M._find_index) == "function" and type(M._enforce_max) == "function" then
-			if not M._find_index(path) then
-				table.insert(M._list, path)
-				M._enforce_max()
-			end
+		if not M._find_index(path) then
+			table.insert(M._list, path)
+			M._enforce_max()
 		end
 		return true
 	end
@@ -65,62 +63,73 @@ return function(M, U)
 		if not M.persist_pins then
 			return
 		end
-
-		local out = { version = 1, pins = {} }
-		for slot = 1, M.pin_slots do
-			local pin = M._pins[slot]
-			if pin and pin.path and pin.path ~= "" then
-				out.pins[tostring(slot)] = { path = pin.path }
-			end
+		local pins = {}
+		for slot, pin in pairs(M._pins) do
+			pins[tostring(slot)] = { path = pin.path }
 		end
-
-		local ok, encoded = pcall(U.json_encode, out)
-		if not ok or type(encoded) ~= "string" then
-			return
-		end
-
-		local file = persist_path()
-		pcall(vim.fn.mkdir, vim.fn.fnamemodify(file, ":h"), "p")
-		pcall(vim.fn.writefile, { encoded }, file)
+		U.write_json(persist_path(), { version = 1, pins = pins })
 	end
 
 	local function load_pins()
-		if not M.persist_pins then
+		local decoded = M.persist_pins and U.read_json(persist_path())
+		if not (decoded and type(decoded.pins) == "table") then
 			return
 		end
-
-		local file = persist_path()
-		if vim.fn.filereadable(file) ~= 1 then
-			return
-		end
-
-		local lines = vim.fn.readfile(file)
-		local decoded_ok, decoded = pcall(U.json_decode, table.concat(lines, "\n"))
-		if not decoded_ok or type(decoded) ~= "table" then
-			return
-		end
-
-		local pins = decoded.pins
-		if type(pins) ~= "table" then
-			return
-		end
-
-		for slot_str, pin in pairs(pins) do
-			local slot = normalize_slot(slot_str)
-			local path = type(pin) == "table" and pin.path or nil
-			path = U.normalize_path(path)
-			if slot and path then
+		for slot, pin in pairs(decoded.pins) do
+			local path = type(pin) == "table" and U.normalize_path(pin.path)
+			if path then
 				pin_path(path, slot, nil)
 			end
 		end
 	end
 
-	M._normalize_slot = normalize_slot
+	-- Menu and Telescope `x`: unpin a pinned entry, otherwise take the first free slot.
+	local function toggle_pin(item)
+		local slot = pin_slot_for_path(item.path)
+		if slot then
+			M.unpin(slot)
+			return true
+		end
+		local free = first_free_pin_slot()
+		if not free then
+			vim.notify(("MRU: no free pin slots (1-%d)"):format(M.pin_slots), vim.log.levels.WARN)
+			return false
+		end
+		if not pin_path(item.path, free, item.bufnr) then
+			vim.notify("MRU: cannot pin a file outside the current directory", vim.log.levels.WARN)
+			return false
+		end
+		save_pins()
+		vim.notify(("MRU: pinned to %d"):format(free), vim.log.levels.INFO)
+		return true
+	end
+
+	-- Menu and Telescope `X`: fill free slots from the top of `items`.
+	local function pin_top(items)
+		local pinned = 0
+		for _, item in ipairs(items) do
+			if not pin_slot_for_path(item.path) then
+				local free = first_free_pin_slot()
+				if not free then
+					break
+				end
+				if pin_path(item.path, free, item.bufnr) then
+					pinned = pinned + 1
+				end
+			end
+		end
+		if pinned > 0 then
+			save_pins()
+		end
+		return pinned > 0
+	end
+
 	M._pin_slot_for_path = pin_slot_for_path
 	M._first_free_pin_slot = first_free_pin_slot
-	M._pin_path = pin_path
 	M._save_pins = save_pins
 	M._load_pins = load_pins
+	M._toggle_pin = toggle_pin
+	M._pin_top = pin_top
 
 	function M.pin(slot)
 		M._activate_directory()
@@ -131,7 +140,7 @@ return function(M, U)
 		end
 
 		local cur = vim.api.nvim_get_current_buf()
-		if type(M._buf_real) == "function" and not M._buf_real(cur) then
+		if not M._buf_real(cur) then
 			vim.notify("MRU: cannot pin this buffer", vim.log.levels.WARN)
 			return
 		end
@@ -158,9 +167,7 @@ return function(M, U)
 			return
 		end
 		M._pins[slot] = nil
-		if type(M._prune) == "function" then
-			M._prune()
-		end
+		M._prune()
 		save_pins()
 	end
 

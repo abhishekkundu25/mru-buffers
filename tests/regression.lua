@@ -249,6 +249,29 @@ test("lazy-load bootstrap and setup idempotence", function()
 	local events = vim.api.nvim_get_autocmds({ group = "MRUBuffers", event = "BufEnter" })
 	eq(#events, 1, "one enter callback after repeated setup")
 end)
+test("git counts load in the background and redraw the open menu", function()
+	local repo = tmp .. "/repo"
+	local f = file("repo/f.txt")
+	vim.fn.system({ "git", "-C", repo, "init", "-q" })
+	vim.fn.system({ "git", "-C", repo, "add", "f.txt" })
+	vim.fn.system({ "git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init" })
+	vim.fn.writefile({ "line one", "changed", "line three", "added" }, f)
+	fresh({ git = { enabled = true } })
+	vim.cmd.cd(repo)
+	vim.cmd.edit(f)
+	M.open_menu()
+	eq(vim.api.nvim_get_current_line():find("%[", 5) == nil, true, "menu opens before git finishes")
+	assert(
+		vim.wait(3000, function()
+			return vim.api.nvim_get_current_line():find("[+2 -1]", 1, true) ~= nil
+		end),
+		"background git redraws the menu: " .. vim.api.nvim_get_current_line()
+	)
+	M.open_menu()
+	M.open_menu()
+	assert(vim.api.nvim_get_current_line():find("[+2 -1]", 1, true), "reopened menu shows cached counts at once")
+	M.open_menu()
+end)
 local deps = vim.env.MRU_TEST_PLUGINS
 if deps then
 	for _, name in ipairs({ "plenary.nvim", "telescope.nvim", "nvim-web-devicons" }) do

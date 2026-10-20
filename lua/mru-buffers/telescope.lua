@@ -1,94 +1,33 @@
 return function(M, U)
-	-- Optional Telescope integration.
-	-- This is intentionally lazy/soft-dependent: requiring this plugin does not
-	-- require Telescope unless the user calls `M.telescope()` / `:MRUTelescope`.
+	-- Optional Telescope picker over `M.entries()`. Telescope is only required
+	-- when `M.telescope()` / `:MRUTelescope` runs.
 
-	local hl_ready = false
 	local function setup_highlights()
-		if hl_ready then
-			return
-		end
-		local function link(group, target)
+		for group, target in pairs({
+			MRUBuffersTelescopePin = "DiagnosticHint",
+			MRUBuffersTelescopePath = "Normal",
+			MRUBuffersTelescopeClosed = "Comment",
+			MRUBuffersTelescopeModified = "DiagnosticWarn",
+			MRUBuffersTelescopeGitAdd = "DiffAdd",
+			MRUBuffersTelescopeGitDel = "DiffDelete",
+		}) do
 			vim.api.nvim_set_hl(0, group, { link = target, default = true })
 		end
-		link("MRUBuffersTelescopePin", "DiagnosticHint")
-		link("MRUBuffersTelescopePath", "Normal")
-		link("MRUBuffersTelescopeClosed", "Comment")
-		link("MRUBuffersTelescopeModified", "DiagnosticWarn")
-		link("MRUBuffersTelescopeGitAdd", "DiffAdd")
-		link("MRUBuffersTelescopeGitDel", "DiffDelete")
-		hl_ready = true
 	end
 
-	local function collect_items()
-		return M.entries()
-	end
-
-	local function open_item(item)
-		if item and not M._navigation.open(item, false) then
-			vim.notify("MRU: failed to open entry", vim.log.levels.WARN)
-		end
-	end
-
-	local function close_item(item)
-		if not (item and item.path) then
-			return false, "invalid"
-		end
-		local bufnr = item.bufnr
-		if not (bufnr and U.buf_valid(bufnr)) then
-			local b = vim.fn.bufnr(item.path, false)
-			bufnr = (b and b > 0 and U.buf_valid(b)) and b or nil
-		end
-		if not bufnr then
-			return false, "closed"
-		end
-		if vim.bo[bufnr].modified then
-			return false, "modified"
-		end
-		local ok = pcall(vim.api.nvim_buf_delete, bufnr, { force = false })
-		return ok, ok and "closed" or "failed"
-	end
-
-	local function pin_toggle_item(item)
-		if not (item and item.path) then
-			return false
-		end
-		if type(M._pin_slot_for_path) ~= "function" then
-			return false
-		end
-
-		local slot = M._pin_slot_for_path(item.path)
-		if slot then
-			if type(M.unpin) == "function" then
-				M.unpin(slot)
-			end
-			return true
-		end
-
-		local free = type(M._first_free_pin_slot) == "function" and M._first_free_pin_slot() or nil
-		if not free then
-			vim.notify(("MRU: no free pin slots (1-%d)"):format(M.pin_slots), vim.log.levels.WARN)
-			return false
-		end
-		if type(M._pin_path) == "function" then
-			M._pin_path(item.path, free, item.bufnr)
-		end
-		if type(M._save_pins) == "function" then
-			M._save_pins()
-		end
-		return true
+	-- Set while a picker is open so background git results can redraw it.
+	local refresh_open_picker = function() end
+	function M._refresh_picker()
+		refresh_open_picker()
 	end
 
 	function M.telescope(opts)
 		M._picker_origin_win = vim.api.nvim_get_current_win()
 		opts = opts or {}
-
-		local ok_t, telescope = pcall(require, "telescope")
-		if not ok_t or not telescope then
+		if not pcall(require, "telescope") then
 			vim.notify("MRU: Telescope not found", vim.log.levels.WARN)
 			return
 		end
-
 		setup_highlights()
 
 		local pickers = require("telescope.pickers")
@@ -98,281 +37,144 @@ return function(M, U)
 		local actions = require("telescope.actions")
 		local action_state = require("telescope.actions.state")
 
-		local show_git = M.git
-			and M.git.enabled == true
-			and M.git.show_in_telescope ~= false
-			and type(M._git_stats_for_paths) == "function"
-			and type(M._git_format_badge) == "function"
-
-		local function make_finder()
-			local results = collect_items()
-			local git_map = nil
-			if show_git then
-				local paths = {}
-				for _, it in ipairs(results) do
-					if it and it.path then
-						paths[#paths + 1] = it.path
-					end
-				end
-				git_map = M._git_stats_for_paths(paths)
+		local function make_entry(item, stats)
+			local path, bufnr = item.path, item.bufnr
+			local slot = M._pin_slot_for_path(path)
+			local pin = slot and ("[" .. slot .. "] ") or "    "
+			local rel = vim.fn.fnamemodify(path, ":~:.")
+			local icon, icon_hl = tutils.get_devicons(path, opts.disable_devicons)
+			icon = (icon and icon ~= "") and icon or " "
+			local modified = bufnr and vim.bo[bufnr].modified
+			local status = not bufnr and "  [closed]" or modified and " [unsaved]" or ""
+			local name_hl = not bufnr and "MRUBuffersTelescopeClosed"
+				or modified and "MRUBuffersTelescopeModified"
+				or "MRUBuffersTelescopePath"
+			local st = stats[path]
+			local badge, ranges = "", {}
+			if st then
+				badge, ranges = M._git_format_badge(st.add, st.del)
+				badge = " [" .. badge .. "]"
 			end
 
-			return finders.new_table({
-				results = results,
-				entry_maker = function(item)
-					local path = item.path
-					local bufnr = item.bufnr
-					local pin_slot = type(M._pin_slot_for_path) == "function" and M._pin_slot_for_path(path) or nil
-					local pin_tag = pin_slot and ("[" .. tostring(pin_slot) .. "]") or "   "
-					local disp_fallback = vim.fn.fnamemodify(path, ":~:.")
-					local is_modified = bufnr and U.buf_valid(bufnr) and vim.bo[bufnr].modified
-					local is_closed = not bufnr
-					local suffix = is_modified and " [unsaved]" or (is_closed and "  [closed]" or "")
-
-					local icon, icon_hl = tutils.get_devicons(path, opts.disable_devicons)
-					icon = (type(icon) == "string" and icon ~= "") and icon or " "
-
-					local git_badge, git_meta, git_add, git_del = "", nil, false, false
-					if show_git then
-						local abs = U.normalize_path(path)
-						local st = abs and git_map and git_map[abs] or nil
-						if st then
-							git_add = (st.add or 0) > 0
-							git_del = (st.del or 0) > 0
-							git_badge, git_meta = M._git_format_badge(st.add or 0, st.del or 0)
+			return {
+				value = item,
+				path = path,
+				ordinal = table.concat({ rel, path, slot and ("[" .. slot .. "]") or "   " }, " "),
+				display = function()
+					-- `transform_path` needs the picker layout, so it runs at display time.
+					local ok, name = pcall(tutils.transform_path, opts, path)
+					name = (ok and type(name) == "string" and name ~= "") and name or rel
+					local name_col = #pin + 1 + #icon + 1
+					local hls = {
+						{ { 0, #pin }, slot and "MRUBuffersTelescopePin" or "TelescopeResultsNumber" },
+						{ { name_col, name_col + #name + #badge + #status }, name_hl },
+					}
+					if icon_hl then
+						table.insert(hls, { { #pin + 1, #pin + 1 + #icon }, icon_hl })
+					end
+					for key, group in pairs({ add = "MRUBuffersTelescopeGitAdd", del = "MRUBuffersTelescopeGitDel" }) do
+						local r = ranges[key]
+						if r then
+							local s = name_col + #name + 2 + r.start - 1 -- after " ["
+							hls[#hls + 1] = { { s, s + r.len }, group }
 						end
 					end
+					return pin .. " " .. icon .. " " .. name .. badge .. status, hls
+				end,
+			}
+		end
 
-					return {
-						value = item,
-						display = function(entry)
-							local left_hl = entry.pin_slot and "MRUBuffersTelescopePin" or "TelescopeResultsNumber"
-							local right_hl = entry.is_closed and "MRUBuffersTelescopeClosed"
-								or (entry.is_modified and "MRUBuffersTelescopeModified" or "MRUBuffersTelescopePath")
-
-							local parts = {}
-							local highlights = {}
-							local col = 0
-
-							local function push(text)
-								if not text or text == "" then
-									return 0
-								end
-								parts[#parts + 1] = text
-								local len = #text
-								col = col + len
-								return len
-							end
-
-							local function push_hl(text, hl)
-								local start = col
-								local len = push(text)
-								if hl and len > 0 then
-									highlights[#highlights + 1] = { { start, start + len }, hl }
-								end
-							end
-
-							local pin = entry.pin_tag or "   "
-							if #pin < 4 then
-								pin = pin .. string.rep(" ", 4 - #pin)
-							end
-							push_hl(pin, left_hl)
-							push(" ")
-
-							push_hl(entry.icon, entry.icon_hl)
-							push(" ")
-							local disp = entry.disp_fallback or entry.path or ""
-							local ok_disp, transformed = pcall(function()
-								return select(1, tutils.transform_path(opts, entry.path))
-							end)
-							if ok_disp and type(transformed) == "string" and transformed ~= "" then
-								disp = transformed
-							end
-
-							local git_suffix = (show_git and entry.git_badge and entry.git_badge ~= "")
-									and (" [" .. entry.git_badge .. "]")
-								or ""
-							local path_start = col
-							push_hl(disp .. git_suffix .. entry.suffix, right_hl)
-
-							if show_git and git_suffix ~= "" then
-								local badge_start = path_start + #disp + 2 -- after " ["
-								if entry.git_add and entry.git_meta and entry.git_meta.add then
-									local s = badge_start + (entry.git_meta.add.start - 1)
-									highlights[#highlights + 1] =
-										{ { s, s + entry.git_meta.add.len }, "MRUBuffersTelescopeGitAdd" }
-								end
-								if entry.git_del and entry.git_meta and entry.git_meta.del then
-									local s = badge_start + (entry.git_meta.del.start - 1)
-									highlights[#highlights + 1] =
-										{ { s, s + entry.git_meta.del.len }, "MRUBuffersTelescopeGitDel" }
-								end
-							end
-
-							return table.concat(parts, ""), highlights
-						end,
-						ordinal = table.concat({ disp_fallback, path, pin_tag }, " "),
-						path = path,
-						bufnr = bufnr,
-						disp_fallback = disp_fallback,
-						suffix = suffix,
-						pin_slot = pin_slot,
-						pin_tag = pin_tag,
-						icon = icon,
-						icon_hl = icon_hl,
-						git_badge = git_badge,
-						git_meta = git_meta,
-						git_add = git_add,
-						git_del = git_del,
-						is_closed = is_closed,
-						is_modified = is_modified,
-					}
+		local function make_finder()
+			local items = M.entries()
+			local stats = {}
+			if M.git.enabled == true and M.git.show_in_telescope ~= false then
+				stats = M._git_stats_for_paths(vim.tbl_map(function(it)
+					return it.path
+				end, items))
+			end
+			return finders.new_table({
+				results = items,
+				entry_maker = function(item)
+					return make_entry(item, stats)
 				end,
 			})
 		end
 
-		local function refresh_picker(prompt_bufnr, selected_path)
+		local function refresh_picker(prompt_bufnr, path)
 			local picker = action_state.get_current_picker(prompt_bufnr)
-			if not picker then
-				return
-			end
-
-			local row = picker.get_selection_row and picker:get_selection_row() or nil
+			local row = picker:get_selection_row()
 			picker:refresh(make_finder(), { reset_prompt = false })
-
-			-- Immediately restore the previous row to avoid visible jumps while the
-			-- refreshed results are settling, then (below) refine by path.
-			if row ~= nil and picker.set_selection then
-				pcall(picker.set_selection, picker, row)
-			end
-
+			-- Hold the row while results settle, then follow the entry by path.
+			pcall(picker.set_selection, picker, row)
 			vim.defer_fn(function()
-				local p = action_state.get_current_picker(prompt_bufnr) or picker
-				if not p or p:is_done() then
+				if picker:is_done() or not picker.manager then
 					return
 				end
-
-				local target_row = row
-				if selected_path and p.manager and p.get_row then
-					for i = 1, p.manager:num_results() do
-						local entry = p.manager:get_entry(i)
-						if entry and entry.path == selected_path then
-							target_row = p:get_row(i)
-							break
-						end
-					end
-				end
-
-				if target_row ~= nil and p.set_selection then
-					pcall(p.set_selection, p, target_row)
-				end
-			end, 25)
-		end
-
-		local function bulk_pin_top()
-			if type(M._pin_slot_for_path) ~= "function" then
-				return false
-			end
-			if type(M._first_free_pin_slot) ~= "function" then
-				return false
-			end
-			if type(M._pin_path) ~= "function" then
-				return false
-			end
-
-			local pinned = 0
-			for _, it in ipairs(collect_items()) do
-				if it and it.path and not M._pin_slot_for_path(it.path) then
-					local free = M._first_free_pin_slot()
-					if not free then
+				for i = 1, picker.manager:num_results() do
+					if picker.manager:get_entry(i).path == path then
+						row = picker:get_row(i)
 						break
 					end
-					M._pin_path(it.path, free, it.bufnr)
-					pinned = pinned + 1
 				end
-			end
-
-			if pinned > 0 and type(M._save_pins) == "function" then
-				M._save_pins()
-			end
-			return pinned > 0
+				pcall(picker.set_selection, picker, row)
+			end, 25)
 		end
 
 		pickers
 			.new(opts, {
-				prompt_title = "MRU Buffers  x:pin  X:bulk-pin  c:close",
+				prompt_title = "MRU Buffers  x/<M-x>:pin  X:bulk-pin  c/<M-c>:close",
 				finder = make_finder(),
 				sorter = conf.generic_sorter(opts),
-				-- Use Telescope's configured file previewer for broad compatibility
-				-- across Telescope versions (avoids depending on internal utils).
 				previewer = conf.file_previewer(opts),
 				attach_mappings = function(prompt_bufnr, map)
 					local function selected()
-						local e = action_state.get_selected_entry()
-						return e and e.value or nil
+						local entry = action_state.get_selected_entry()
+						return entry and entry.value
 					end
 
-					local function selected_path()
-						local e = action_state.get_selected_entry()
-						return e and e.value and e.value.path or nil
+					refresh_open_picker = function()
+						if vim.api.nvim_buf_is_valid(prompt_bufnr) then
+							local item = selected()
+							refresh_picker(prompt_bufnr, item and item.path)
+						end
 					end
 
 					actions.select_default:replace(function()
 						local item = selected()
 						actions.close(prompt_bufnr)
-						open_item(item)
+						if item and not M._navigation.open(item, false) then
+							vim.notify("MRU: failed to open entry", vim.log.levels.WARN)
+						end
 					end)
 
 					local function pin_action()
 						local item = selected()
-						if pin_toggle_item(item) then
-							refresh_picker(prompt_bufnr, item and item.path or selected_path())
+						if item and M._toggle_pin(item) then
+							refresh_picker(prompt_bufnr, item.path)
 						end
 					end
 
 					local function bulk_pin_action()
-						local path = selected_path()
-						if bulk_pin_top() then
-							refresh_picker(prompt_bufnr, path)
+						local item = selected()
+						if M._pin_top(M.entries()) then
+							refresh_picker(prompt_bufnr, item and item.path)
 						end
 					end
 
 					local function close_action()
 						local item = selected()
-						local path = item and item.path or selected_path()
-
-						-- `nvim_buf_delete` can behave inconsistently when invoked from a
-						-- floating prompt window. Run the delete in the picker's origin
-						-- window context without changing focus (so Telescope stays open).
-						local picker = action_state.get_current_picker(prompt_bufnr)
-						local origin_win = picker and picker.original_win_id or nil
-						local ok_close, reason
-						if origin_win and vim.api.nvim_win_is_valid(origin_win) then
-							vim.api.nvim_win_call(origin_win, function()
-								ok_close, reason = close_item(item)
-							end)
-						else
-							ok_close, reason = close_item(item)
+						local win = action_state.get_current_picker(prompt_bufnr).original_win_id
+						if item and M._close_if_saved(item, win) then
+							refresh_picker(prompt_bufnr, item.path)
 						end
-
-						if not ok_close then
-							if reason == "modified" then
-								vim.notify("MRU: buffer has unsaved changes", vim.log.levels.WARN)
-							elseif reason == "closed" then
-								vim.notify("MRU: buffer already closed", vim.log.levels.INFO)
-							else
-								vim.notify("MRU: failed to close buffer", vim.log.levels.WARN)
-							end
-							return
-						end
-						refresh_picker(prompt_bufnr, path)
 					end
 
 					map("n", "x", pin_action)
-					map("i", "<C-x>", pin_action)
+					-- Insert-mode keys avoid Telescope's defaults (<C-x> split, <C-c> close).
+					map("i", "<M-x>", pin_action)
 					map("n", "X", bulk_pin_action)
 					map("n", "c", close_action)
-					map("i", "<C-c>", close_action)
+					map("i", "<M-c>", close_action)
 					return true
 				end,
 			})
